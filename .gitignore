@@ -1,0 +1,10 @@
+node_modules
+dist
+dev-dist
+test-results
+playwright-report
+*.log
+
+# 企画書の元PDF（内容は docs/PLAN.md に収録）
+*.pdf
+.claude/settings.local.json

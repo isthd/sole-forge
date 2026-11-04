@@ -1,0 +1,310 @@
+/**
+ * @react-three/fiber + drei の 3D ビュー。
+ * 実際の Three.js オブジェクト生成は SneakerView（レンダラー層）に任せ、ここは操作と表示だけを担当する。
+ */
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
+import { useEffect, useMemo, useRef } from 'react';
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import type { CameraState, Decal, PartId, SneakerDesign, Vec3 } from '../../models/types';
+import { getBaseModel } from '../../models';
+import type { ViewPreset } from '../../models/baseModel';
+import { SneakerView, addStageLights } from '../three/SneakerView';
+
+export interface PickInfo {
+  part: PartId | null;
+  decalId: string | null;
+  position: Vec3;
+  normal: Vec3;
+}
+
+export interface SneakerCanvasProps {
+  design: SneakerDesign;
+  highlightPart?: PartId | null;
+  selectedDecalId?: string | null;
+  initialCamera?: CameraState | null;
+  viewRequest?: { preset: ViewPreset; nonce: number } | null;
+  nudgeRequest?: { id: string; dx: number; dy: number; nonce: number } | null;
+  /** タップ（ドラッグでない）したとき */
+  onPick?: (p: PickInfo) => void;
+  /** デカール貼り付け待ち（靴ひもとデカールを当たり判定から外す） */
+  placing?: boolean;
+  /** dragMode が true の間、1 本指ドラッグはモデル表面をなぞる（デカール移動） */
+  dragMode?: boolean;
+  onDrag?: (p: PickInfo) => void;
+  onDragEnd?: () => void;
+  onNudged?: (id: string, p: PickInfo) => void;
+  onCameraChange?: (c: CameraState) => void;
+  className?: string;
+}
+
+const tmpV = new THREE.Vector3();
+
+function toPick(e: ThreeEvent<PointerEvent | MouseEvent>, root: THREE.Object3D, skipDecals: boolean, skipLaces = false): PickInfo | null {
+  for (const hit of e.intersections) {
+    const o = hit.object;
+    const decalId = o.userData.decalId as string | undefined;
+    const part = o.userData.partId as PartId | undefined;
+    if (!part && !decalId) continue;
+    if (skipDecals && decalId) continue;
+    // 靴ひもにはデカールを貼らない（その奥の面を使う）
+    if (skipLaces && part === 'laces') continue;
+    if (!hit.face) continue;
+    const local = root.worldToLocal(hit.point.clone());
+    const n = hit.face.normal.clone();
+    // DoubleSide のパーツを内側から当てた場合は法線を反転
+    const dirLocal = e.ray.direction.clone().transformDirection(new THREE.Matrix4().copy(root.matrixWorld).invert());
+    if (n.dot(dirLocal) > 0) n.negate();
+    return {
+      part: part ?? null,
+      decalId: decalId ?? null,
+      position: [round(local.x), round(local.y), round(local.z)],
+      normal: [round(n.x), round(n.y), round(n.z)],
+    };
+  }
+  return null;
+}
+const round = (v: number) => Math.round(v * 10000) / 10000;
+
+function Studio() {
+  const { gl, scene, invalidate } = useThree();
+  useEffect(() => {
+    const pm = new THREE.PMREMGenerator(gl);
+    const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = env;
+    const lights = addStageLights(scene);
+    invalidate();
+    return () => {
+      scene.environment = null;
+      for (const l of lights) scene.remove(l);
+      env.dispose();
+      pm.dispose();
+    };
+  }, [gl, scene, invalidate]);
+  return null;
+}
+
+/**
+ * FPS 計測用: 描画フレーム数を数える（?fps=1 で表示、E2E でも参照）。
+ * window.__sfSpin = true の間は、ドラッグ回転と同じようにカメラを毎フレーム回し続ける（性能テスト用）。
+ */
+function FrameCounter() {
+  const { camera, invalidate, controls } = useThree();
+  useEffect(() => {
+    (window as unknown as { __sfInvalidate?: () => void }).__sfInvalidate = invalidate;
+  }, [invalidate]);
+  useFrame((_, dt) => {
+    const w = window as unknown as { __sfFrames?: number; __sfSpin?: boolean };
+    w.__sfFrames = (w.__sfFrames ?? 0) + 1;
+    if (w.__sfSpin) {
+      const c = controls as unknown as OrbitControlsImpl | null;
+      const target = c?.target ?? new THREE.Vector3(0, 1, 0);
+      tmpV.copy(camera.position).sub(target).applyAxisAngle(new THREE.Vector3(0, 1, 0), dt * 1.5);
+      camera.position.copy(target).add(tmpV);
+      camera.lookAt(target);
+      invalidate();
+    }
+  });
+  return null;
+}
+
+function Model(props: SneakerCanvasProps & { controls: React.MutableRefObject<OrbitControlsImpl | null> }) {
+  const { invalidate } = useThree();
+  const def = getBaseModel(props.design.baseModel);
+  const view = useMemo(() => new SneakerView(def, () => invalidate()), [def, invalidate]);
+  const dragging = useRef(false);
+  useEffect(() => () => view.dispose(), [view]);
+  useEffect(() => {
+    view.setParts(props.design.parts, props.highlightPart ?? null);
+  }, [view, props.design.parts, props.highlightPart]);
+  useEffect(() => {
+    void view.setDecals(props.design.decals, props.selectedDecalId ?? null);
+  }, [view, props.design.decals, props.selectedDecalId]);
+
+  // 矢印キー / ボタンでの微調整移動: 接平面上でずらして表面へ投影し直す
+  const nudge = props.nudgeRequest;
+  const onNudged = props.onNudged;
+  useEffect(() => {
+    if (!nudge || !onNudged) return;
+    const d = props.design.decals.find((x: Decal) => x.id === nudge.id);
+    if (!d) return;
+    const n = new THREE.Vector3(...d.normal).normalize();
+    const up = Math.abs(n.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const x = new THREE.Vector3().crossVectors(up, n).normalize();
+    const y = new THREE.Vector3().crossVectors(n, x);
+    const p = new THREE.Vector3(...d.position).addScaledVector(x, nudge.dx).addScaledVector(y, nudge.dy);
+    const origin = p.clone().addScaledVector(n, 0.6);
+    const ray = new THREE.Raycaster(origin, n.clone().negate(), 0, 1.4);
+    view.root.updateMatrixWorld(true);
+    const targets = Object.values(view.meshes).filter((m) => m.name !== 'laces');
+    const hit = ray.intersectObjects(targets, false)[0];
+    if (!hit || !hit.face) return;
+    const local = view.root.worldToLocal(hit.point.clone());
+    const hn = hit.face.normal.clone();
+    if (hn.dot(n) < 0) hn.negate();
+    onNudged(nudge.id, {
+      part: hit.object.userData.partId,
+      decalId: null,
+      position: [round(local.x), round(local.y), round(local.z)],
+      normal: [round(hn.x), round(hn.y), round(hn.z)],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nudge?.nonce]);
+
+  return (
+    <primitive
+      object={view.root}
+      onClick={(e: ThreeEvent<MouseEvent>) => {
+        e.stopPropagation();
+        if (e.delta > 8 || props.dragMode) return;
+        const p = toPick(e, view.root, !!props.placing, !!props.placing);
+        if (p) props.onPick?.(p);
+      }}
+      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        if (!props.dragMode) return;
+        e.stopPropagation();
+        const p = toPick(e, view.root, true, true);
+        if (!p) return;
+        dragging.current = true;
+        (e.target as Element)?.setPointerCapture?.(e.pointerId);
+        props.onDrag?.(p);
+      }}
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+        if (!props.dragMode || !dragging.current) return;
+        e.stopPropagation();
+        const p = toPick(e, view.root, true, true);
+        if (p) props.onDrag?.(p);
+      }}
+      onPointerUp={(e: ThreeEvent<PointerEvent>) => {
+        if (!dragging.current) return;
+        e.stopPropagation();
+        dragging.current = false;
+        props.onDragEnd?.();
+      }}
+    />
+  );
+}
+
+function CameraRig({
+  def,
+  initial,
+  request,
+  controls,
+  designId,
+}: {
+  def: ReturnType<typeof getBaseModel>;
+  initial?: CameraState | null;
+  request?: { preset: ViewPreset; nonce: number } | null;
+  controls: React.MutableRefObject<OrbitControlsImpl | null>;
+  designId: string;
+}) {
+  const { camera, invalidate } = useThree();
+  const anim = useRef<{ from: THREE.Vector3; to: THREE.Vector3; fromT: THREE.Vector3; toT: THREE.Vector3; t0: number } | null>(null);
+
+  // 作品を開いたとき: 最後に見ていた角度へ
+  useEffect(() => {
+    const pos = initial?.position ?? def.defaultCamera;
+    const tgt = initial?.target ?? def.target;
+    camera.position.set(...pos);
+    controls.current?.target.set(...tgt);
+    controls.current?.update();
+    camera.lookAt(...tgt);
+    invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designId]);
+
+  useEffect(() => {
+    if (!request) return;
+    const c = controls.current;
+    anim.current = {
+      from: camera.position.clone(),
+      to: new THREE.Vector3(...def.presets[request.preset]),
+      fromT: c ? c.target.clone() : new THREE.Vector3(...def.target),
+      toT: new THREE.Vector3(...def.target),
+      t0: performance.now(),
+    };
+    invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.nonce]);
+
+  useFrame(() => {
+    const a = anim.current;
+    if (!a) return;
+    const t = Math.min(1, (performance.now() - a.t0) / 450);
+    const k = 1 - (1 - t) ** 3;
+    // 半径を補間しつつ方向を球面補間（注視点まわりに回り込む）
+    const r0 = a.from.clone().sub(a.fromT);
+    const r1 = a.to.clone().sub(a.toT);
+    const len = THREE.MathUtils.lerp(r0.length(), r1.length(), k);
+    const dir = r0.normalize().lerp(r1.normalize(), k).normalize();
+    const tgt = a.fromT.clone().lerp(a.toT, k);
+    camera.position.copy(tgt).addScaledVector(dir, len);
+    controls.current?.target.copy(tgt);
+    controls.current?.update();
+    camera.lookAt(tgt);
+    if (t >= 1) {
+      anim.current = null;
+      controls.current?.dispatchEvent({ type: 'end' } as never);
+    }
+    invalidate();
+  });
+  return null;
+}
+
+export function SneakerCanvas(props: SneakerCanvasProps) {
+  const controls = useRef<OrbitControlsImpl | null>(null);
+  const def = getBaseModel(props.design.baseModel);
+  const showFps = typeof location !== 'undefined' && location.search.includes('fps');
+  return (
+    <div className={'sneaker-canvas ' + (props.className ?? '')} data-testid="viewport">
+      <Canvas
+        frameloop="demand"
+        dpr={[1, 1.75]}
+        camera={{ fov: 32, near: 0.1, far: 100, position: props.initialCamera?.position ?? def.defaultCamera }}
+        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.05;
+        }}
+      >
+        <Studio />
+        <FrameCounter />
+        <Model {...props} controls={controls} />
+        <OrbitControls
+          ref={controls}
+          makeDefault
+          enabled={!props.dragMode}
+          enableDamping
+          dampingFactor={0.12}
+          minDistance={2.6}
+          maxDistance={12}
+          target={props.initialCamera?.target ?? def.target}
+          onEnd={() => {
+            const c = controls.current;
+            if (!c || !props.onCameraChange) return;
+            const p = c.object.position;
+            props.onCameraChange({ position: [round(p.x), round(p.y), round(p.z)], target: [round(c.target.x), round(c.target.y), round(c.target.z)] });
+          }}
+        />
+        <CameraRig def={def} initial={props.initialCamera} request={props.viewRequest} controls={controls} designId={props.design.id} />
+      </Canvas>
+      {showFps && <FpsMeter />}
+    </div>
+  );
+}
+
+function FpsMeter() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let last = (window as unknown as { __sfFrames?: number }).__sfFrames ?? 0;
+    const id = setInterval(() => {
+      const now = (window as unknown as { __sfFrames?: number }).__sfFrames ?? 0;
+      if (ref.current) ref.current.textContent = `${now - last} fps`;
+      last = now;
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <div ref={ref} className="fps-meter" data-testid="fps" />;
+}
