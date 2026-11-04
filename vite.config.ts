@@ -4,6 +4,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
+  // GitHub Pages ではリポジトリ名のサブパス（例: /sole-forge/）で配信する。ローカルは /
+  base: process.env.BASE_PATH ?? '/',
   plugins: [
     react(),
     VitePWA({
