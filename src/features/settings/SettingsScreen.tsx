@@ -90,7 +90,8 @@ export function SettingsScreen() {
     }
   };
 
-  const tris = countTriangles(getGeometries(getBaseModel('hightop-01')));
+  const baseModel = getBaseModel('hightop-01');
+  const tris = countTriangles(getGeometries(baseModel));
 
   return (
     <div className="page">
@@ -218,7 +219,7 @@ export function SettingsScreen() {
             <dd>{swState}</dd>
             <dt>ベースモデル</dt>
             <dd>
-              ハイカット 01（{tris.toLocaleString()} ポリゴン / 足）
+              {baseModel.label}（{tris.toLocaleString()} ポリゴン / 足）
             </dd>
           </dl>
           <p className="small muted">形・ロゴ・柄はすべてオリジナルです。実在ブランドのシルエットやロゴは収録していません。</p>
