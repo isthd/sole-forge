@@ -30,19 +30,19 @@ describe('hightop-01 procedural model', () => {
     expect(names).toEqual([...PART_IDS].sort());
   });
 
-  it('寸法が想定範囲（全長 ~3, 高さ ~2）', () => {
+  it('寸法が想定範囲（全長 ~3, 高さ ~1.5 のローカット）', () => {
     const box = new THREE.Box3();
     for (const id of PART_IDS) box.union(geos[id].boundingBox!);
     const size = box.getSize(new THREE.Vector3());
     expect(size.x).toBeGreaterThan(2.9);
     expect(size.x).toBeLessThan(3.4);
-    expect(size.y).toBeGreaterThan(1.8);
-    expect(size.y).toBeLessThan(2.6);
+    expect(size.y).toBeGreaterThan(1.3);
+    expect(size.y).toBeLessThan(1.9);
     expect(box.min.y).toBeGreaterThanOrEqual(-0.001);
   });
 
   it('ソールは ExtrudeGeometry 由来 / 靴ひもは TubeGeometry 由来でサイズが妥当', () => {
     expect(geos.midsole.boundingBox!.max.y).toBeGreaterThan(0.3);
-    expect(geos.laces.boundingBox!.max.y).toBeGreaterThan(1.0);
+    expect(geos.laces.boundingBox!.max.y).toBeGreaterThan(0.9);
   });
 });
