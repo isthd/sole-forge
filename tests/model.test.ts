@@ -24,6 +24,20 @@ describe.each(BASE_MODEL_IDS)('%s procedural model', (id) => {
     expect(tris * 2).toBeLessThanOrEqual(50000);
   });
 
+  it('アッパー表面のパーツは共通の座標 uv1 と同じ実寸を持つ（色を塗っても境目に線が出ない）', () => {
+    const skin = geos.upper.userData.uv1Size as [number, number];
+    expect(skin[0]).toBeGreaterThan(1);
+    expect(skin[1]).toBeGreaterThan(0.3);
+    for (const p of ['upper', 'toe', 'heel', 'sidePanel', 'eyestay'] as const) {
+      const uv1 = geos[p].getAttribute('uv1');
+      expect(uv1, p).toBeTruthy();
+      expect(uv1.count, p).toBe(geos[p].getAttribute('position').count);
+      expect(geos[p].userData.uv1Size, p).toEqual(skin);
+    }
+    // ソール・シュータン・ライニングなどアッパーの外のパーツは従来どおり自分の uv だけ
+    for (const p of ['tongue', 'lining', 'midsole', 'outsole', 'laces'] as const) expect(geos[p].getAttribute('uv1'), p).toBeUndefined();
+  });
+
   it('パーツ ID と同じ名前のメッシュが 10 個できる', () => {
     const group = buildSneakerMeshes(def);
     const names = group.children.filter((c) => (c as THREE.Mesh).isMesh).map((c) => c.name).sort();

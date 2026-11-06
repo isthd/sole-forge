@@ -200,8 +200,12 @@ interface Band {
   nv: number;
 }
 
-/** (s,h) の帯領域を、法線方向に offset ずらした曲面メッシュにする */
-function surface(shape: Shape, bands: Band[], offset: number, inward = false): THREE.BufferGeometry {
+/**
+ * (s,h) の帯領域を、法線方向に offset ずらした曲面メッシュにする。
+ * skin（アッパー全体の実寸）を渡すと、アッパーと共通の座標 uv1 = (s,h) も付ける。
+ * 素材の凹凸（ノーマルマップ）とタイル柄はこの uv1 で貼るので、同じ色・素材ならパーツの境目でシボや柄が途切れない。
+ */
+function surface(shape: Shape, bands: Band[], offset: number, inward = false, skin: [number, number] | null = null): THREE.BufferGeometry {
   const geos: THREE.BufferGeometry[] = [];
   let sizeU = 0;
   let sizeV = 0;
@@ -209,6 +213,7 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false): T
     const pos: number[] = [];
     const nor: number[] = [];
     const uv: number[] = [];
+    const uv1: number[] = [];
     const idx: number[] = [];
     const rowLen = b.nu + 1;
     for (let i = 0; i <= b.nu; i++) {
@@ -223,6 +228,8 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false): T
         pos.push(pt.x, pt.y, pt.z);
         nor.push(n.x, n.y, n.z);
         uv.push(i / b.nu, j / b.nv);
+        // s は折り返さない（つま先の帯は負になる）。繰り返し回数は整数なので s と s+1 は同じ模様になる
+        uv1.push(s, h);
       }
     }
     // 巻き方向を法線に合わせる
@@ -247,6 +254,7 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false): T
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    if (skin) g.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
     g.setIndex(idx);
     geos.push(g);
     // UV の実寸（柄のタイル密度に使う）
@@ -269,7 +277,16 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false): T
   }
   const g = geos.length === 1 ? geos[0] : mergeGeometries(geos)!;
   g.userData.uvSize = [sizeU, sizeV];
+  if (skin) g.userData.uv1Size = skin;
   return g;
+}
+
+/** アッパーの uv はもともと (s,h) なので、そのまま共通座標 uv1 にする */
+function addSkinUV(upper: THREE.BufferGeometry): [number, number] {
+  upper.setAttribute('uv1', upper.getAttribute('uv').clone());
+  const size = upper.userData.uvSize as [number, number];
+  upper.userData.uv1Size = size;
+  return size;
 }
 
 /** ソール（classic）: 足形の輪郭を押し出し（ExtrudeGeometry） */
@@ -443,7 +460,7 @@ function buildTongue(shape: Shape): THREE.BufferGeometry {
 }
 
 /** かかと上端のプルタブ。履き口うしろの曲面から上へ伸ばした角丸の帯 */
-function buildPullTab(shape: Shape): THREE.BufferGeometry {
+function buildPullTab(shape: Shape, skin: [number, number]): THREE.BufferGeometry {
   const len = shape.p.pullTab ?? 0;
   const hw = 0.05; // s 方向の半幅（かかと中心 s=0.5 から）
   const h0 = 0.72;
@@ -452,6 +469,7 @@ function buildPullTab(shape: Shape): THREE.BufferGeometry {
   const pos: number[] = [];
   const nor: number[] = [];
   const uv: number[] = [];
+  const uv1: number[] = [];
   const idx: number[] = [];
   const total = 1 - h0 + 1; // 曲面部分 + 突き出し部分を 0..1 に並べる
   for (let i = 0; i <= nu; i++) {
@@ -466,7 +484,9 @@ function buildPullTab(shape: Shape): THREE.BufferGeometry {
         const h = h0 + k;
         const s = 0.5 + w * hw;
         n = shape.upperN(s, h);
-        pt = shape.upperP(s, h).addScaledVector(n, 0.026);
+        // 下端はアッパーにほぼ沿わせ（段差の線を出さない）、履き口に向かって浮かせてパッドを越える
+        pt = shape.upperP(s, h).addScaledVector(n, lerp(0.005, 0.026, smooth(0, 1, k / (1 - h0))));
+        uv1.push(s, h);
       } else {
         const e = (k - (1 - h0)) / 1; // 0..1 突き出し
         shrink = 1 - 0.3 * smooth(0.55, 1, e) ** 2; // 上端の角を丸める
@@ -476,6 +496,8 @@ function buildPullTab(shape: Shape): THREE.BufferGeometry {
         // 少しうしろに反らせる
         up.addScaledVector(n, 0.35 * e).normalize();
         pt = shape.upperP(s, 1).addScaledVector(n, 0.026).addScaledVector(up, len * e);
+        // 履き口から上へ突き出した分だけ、共通座標の h も実寸に合わせて伸ばす
+        uv1.push(s, 1 + (len * e) / skin[1]);
       }
       pos.push(pt.x, pt.y, pt.z);
       nor.push(n.x, n.y, n.z);
@@ -493,6 +515,7 @@ function buildPullTab(shape: Shape): THREE.BufferGeometry {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('uv1', new THREE.Float32BufferAttribute(uv1, 2));
   g.setIndex(idx);
   fixWinding(g);
   return g;
@@ -515,7 +538,7 @@ function eyeletPoints(shape: Shape) {
   return { lat, med };
 }
 
-function buildEyestay(shape: Shape): THREE.BufferGeometry {
+function buildEyestay(shape: Shape, skin: [number, number]): THREE.BufferGeometry {
   const lo = () => 0.86;
   const hi = () => 1;
   const strip = surface(
@@ -525,6 +548,8 @@ function buildEyestay(shape: Shape): THREE.BufferGeometry {
       { s0: 0.738, s1: 0.99, lo, hi, nu: 48, nv: 4 },
     ],
     0.02,
+    false,
+    skin,
   );
   const { lat, med } = eyeletPoints(shape);
   const rings: THREE.BufferGeometry[] = [];
@@ -533,10 +558,14 @@ function buildEyestay(shape: Shape): THREE.BufferGeometry {
     const t = new THREE.TorusGeometry(0.03, 0.009, 6, 10);
     t.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(zAxis, e.n));
     t.translate(e.p.x, e.p.y, e.p.z);
+    // 結合するため uv1 も持たせる（輪の実寸に合わせて縮めた uv）
+    const ruv = t.getAttribute('uv').array as Float32Array;
+    t.setAttribute('uv1', new THREE.Float32BufferAttribute(ruv.map((v, i) => v * (i % 2 ? 0.04 : 0.03)), 2));
     rings.push(t);
   }
   const g = mergeGeometries([strip, ...rings])!;
   g.userData.uvSize = strip.userData.uvSize;
+  g.userData.uv1Size = skin;
   return g;
 }
 
@@ -587,6 +616,8 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
   };
 
   const upper = surface(shape, [{ s0: 0, s1: 1, lo: zero, hi: one, nu: 112, nv: 28 }], 0);
+  // アッパーの表面に重ねるパーツ（トゥ・ヒール・サイドパネル・アイステイ）はアッパーと共通の座標で素材を貼る
+  const skin = addSkinUV(upper);
 
   const lining = (() => {
     const inner = surface(shape, [{ s0: 0, s1: 1, lo: () => 0.12, hi: one, nu: 112, nv: 14 }], -0.04, true);
@@ -645,6 +676,8 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
       },
     ],
     0.012,
+    false,
+    skin,
   );
 
   const heelW = 0.17;
@@ -661,6 +694,8 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
       },
     ],
     0.012,
+    false,
+    skin,
   );
 
   // サイドパネル: 角を落とした六角形のプレート（オリジナル形状）
@@ -679,9 +714,9 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
       nv: 10,
     };
   };
-  const sidePanel = surface(shape, [panelBand(0.15, 0.335), panelBand(0.85, 0.665)], 0.018);
+  const sidePanel = surface(shape, [panelBand(0.15, 0.335), panelBand(0.85, 0.665)], 0.018, false, skin);
 
-  const eyestay = buildEyestay(shape);
+  const eyestay = buildEyestay(shape, skin);
   const tongue = buildTongue(shape);
   const laces = buildLaces(shape);
   const p = shape.p;
@@ -693,8 +728,9 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
     : sole(shape, 0.06, 0, p.outsoleThickness, 0.02);
   let heel = heelOverlay;
   if (p.pullTab) {
-    heel = mergeGeometries([heelOverlay, buildPullTab(shape)])!;
+    heel = mergeGeometries([heelOverlay, buildPullTab(shape, skin)])!;
     heel.userData.uvSize = heelOverlay.userData.uvSize;
+    heel.userData.uv1Size = skin;
   }
 
   const parts: PartGeometries = {

@@ -192,7 +192,12 @@ export class SneakerView {
 
   private makeMaterial(id: PartId, style: PartStyle): THREE.MeshPhysicalMaterial {
     const spec = MATERIAL_SPECS[style.material];
-    const uvSize = (this.meshes[id].geometry.userData.uvSize as [number, number]) ?? [1, 1];
+    const geo = this.meshes[id].geometry;
+    const uvSize = (geo.userData.uvSize as [number, number]) ?? [1, 1];
+    // アッパーの表面のパーツは共通の座標 uv1 を持つ。素材の凹凸とタイル柄をそこに貼ると、
+    // 同じ素材・柄どうしならパーツの境目でシボや柄が途切れず、境界線が出ない
+    const skinSize = geo.getAttribute('uv1') ? (geo.userData.uv1Size as [number, number] | undefined) ?? null : null;
+    const tileSize = skinSize ?? uvSize;
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(style.pattern ? '#FFFFFF' : style.color),
       roughness: spec.roughness,
@@ -208,7 +213,8 @@ export class SneakerView {
     const nm = getNormalMap(style.material);
     if (nm && spec.normalScale > 0) {
       const t = nm.clone();
-      t.repeat.set(Math.max(1, Math.round(uvSize[0] * spec.density)), Math.max(1, Math.round(uvSize[1] * spec.density)));
+      t.repeat.set(Math.max(1, Math.round(tileSize[0] * spec.density)), Math.max(1, Math.round(tileSize[1] * spec.density)));
+      if (skinSize) t.channel = 1;
       mat.normalMap = t;
       mat.normalScale = new THREE.Vector2(spec.normalScale, spec.normalScale);
     }
@@ -216,7 +222,11 @@ export class SneakerView {
       const base = getPatternTexture(style.pattern.type, style.pattern.colors);
       const t = base.clone();
       const tile = PATTERN_TILE[style.pattern.type];
-      if (tile > 0) t.repeat.set(Math.max(1, Math.round(uvSize[0] / tile)), Math.max(1, Math.round(uvSize[1] / tile)));
+      // グラデーションはパーツごとに下→上で 1 回（従来どおり uv）。タイル柄は共通の座標でつなげる
+      if (tile > 0) {
+        t.repeat.set(Math.max(1, Math.round(tileSize[0] / tile)), Math.max(1, Math.round(tileSize[1] / tile)));
+        if (skinSize) t.channel = 1;
+      }
       mat.map = t;
     }
     return mat;
