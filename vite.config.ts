@@ -35,6 +35,10 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
+        // 新しい版を見つけたら待たずに切り替える（injectRegister: false だとプラグインが自動では付けないため明示）。
+        // 切り替わると src/pwa.ts の registerSW（autoUpdate）が開いている画面を再読み込みする
+        skipWaiting: true,
+        clientsClaim: true,
         // 外部オリジンへのランタイムキャッシュは定義しない（外部通信をしない方針）
         runtimeCaching: [],
       },
