@@ -3,7 +3,7 @@ import type { ViewPreset } from '../models/baseModel';
 
 export type Route = 'editor' | 'shelf' | 'settings';
 export type ExportScale = 1 | 2 | 4;
-export type EditorTab = 'parts' | 'color' | 'material' | 'pattern' | 'decal';
+export type EditorTab = 'model' | 'parts' | 'color' | 'material' | 'pattern' | 'decal';
 
 export interface AppState {
   route: Route;

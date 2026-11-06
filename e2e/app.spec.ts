@@ -357,6 +357,33 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
     await expect.poll(async () => (await store(page).camera()).position[0]).toBeGreaterThan(5);
   });
 
+  test('ベース型（ハイカット / ミッドカット / ローカット / 厚底ロー）を選んで切り替えられる', async ({ page }) => {
+    await page.goto('/');
+    await waitReady(page);
+    const tiles = page.locator('.side.left [data-model]');
+    await expect(tiles).toHaveCount(4);
+    await expect(page.locator('.side.left [data-model=hightop-01]')).toHaveAttribute('aria-checked', 'true');
+    for (const id of ['midcut-01', 'lowtop-01', 'platform-01']) {
+      await page.locator(`.side.left [data-model=${id}]`).click();
+      await expect.poll(async () => (await store(page).design()).baseModel).toBe(id);
+      await expect(page.locator(`.side.left [data-model=${id}]`)).toHaveAttribute('aria-checked', 'true');
+      await page.waitForTimeout(700);
+      await page.screenshot({ path: `${OUT}/model-${id}.png` });
+    }
+    // 配色は引き継がれ、Undo で前の型に戻る
+    await page.keyboard.press('Control+z');
+    await expect.poll(async () => (await store(page).design()).baseModel).toBe('lowtop-01');
+    // 保存され、再読み込みしても型が残る
+    await page.waitForTimeout(800);
+    await page.reload();
+    await waitReady(page);
+    expect((await store(page).design()).baseModel).toBe('lowtop-01');
+    // 新規作成ボタンは今の型で作る
+    await page.locator('[data-testid=new-design]').click();
+    await expect.poll(async () => (await store(page).design()).name).toMatch(/#02/);
+    expect((await store(page).design()).baseModel).toBe('lowtop-01');
+  });
+
   test('[9] 幅 360px のスマホと 1440px の PC で操作が破綻しない', async ({ browser }) => {
     for (const vp of [
       { width: 360, height: 740, mobile: true },
@@ -376,7 +403,7 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
       await waitReady(page);
       if (vp.mobile) {
         // 下部タブ → ボトムシート
-        for (const tab of ['color', 'material', 'pattern', 'decal', 'parts']) {
+        for (const tab of ['model', 'color', 'material', 'pattern', 'decal', 'parts']) {
           await page.locator(`.tabbar [data-tab=${tab}]`).tap();
           await expect(page.locator('.sheet')).toBeVisible();
           const ov = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector('.editor')!.scrollWidth) - window.innerWidth);

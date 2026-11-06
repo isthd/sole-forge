@@ -1,7 +1,7 @@
 import { getDB } from './db';
 import { thumbKey } from './repo';
 import type { Decal, PartId, PartStyle, SneakerDesign } from '../models/types';
-import { CURRENT_SCHEMA_VERSION, MATERIAL_IDS, PART_IDS, PATTERN_TYPES } from '../models/types';
+import { CURRENT_SCHEMA_VERSION, MATERIAL_IDS, isBaseModelId, PART_IDS, PATTERN_TYPES } from '../models/types';
 import { DEFAULT_PARTS, HEX_RE, uid } from '../models/design';
 
 /** JSON バックアップ 1 ファイル。画像は Base64 (data URL) で埋め込む。 */
@@ -126,7 +126,7 @@ function sanitizeDesign(raw: any, i: number): SneakerDesign {
   const d: SneakerDesign = {
     id: typeof raw?.id === 'string' ? raw.id : uid('d_'),
     name: typeof raw?.name === 'string' ? raw.name.slice(0, 60) : '読み込んだスニーカー',
-    baseModel: 'hightop-01',
+    baseModel: isBaseModelId(raw?.baseModel) ? raw.baseModel : 'hightop-01',
     parts,
     decals: Array.isArray(raw?.decals) ? (raw.decals.map(sanitizeDecal).filter(Boolean) as Decal[]) : [],
     favorite: !!raw?.favorite,

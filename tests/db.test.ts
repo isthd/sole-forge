@@ -93,4 +93,13 @@ describe('IndexedDB (Dexie) 保存', () => {
     expect(ok.designs[0].parts.upper.color).toBe('#F2F2EE');
     expect(Object.keys(ok.designs[0].parts)).toHaveLength(10);
   });
+
+  it('ベース型は JSON の読み込みで保たれ、知らない型はハイカットになる', () => {
+    const ok = migrate({
+      app: 'sole-forge',
+      schemaVersion: 1,
+      designs: [{ name: 'a', baseModel: 'lowtop-01' }, { name: 'b', baseModel: 'unknown-99' }, { name: 'c' }],
+    });
+    expect(ok.designs.map((d) => d.baseModel)).toEqual(['lowtop-01', 'hightop-01', 'hightop-01']);
+  });
 });

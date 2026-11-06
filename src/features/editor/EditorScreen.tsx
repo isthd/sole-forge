@@ -5,6 +5,7 @@ import { useApp, type EditorTab } from '../../store/appStore';
 import { SneakerCanvas } from '../../renderers/r3f/SneakerCanvas';
 import { ColorPanel, MaterialPanel, PartList, PatternPanel, useHighlight } from './panels';
 import { DecalPanel } from './DecalPanel';
+import { ModelPanel } from './ModelPanel';
 import { ExportDialog } from './ExportDialog';
 import { Icon } from '../../ui/Icon';
 import { PART_LABELS } from '../../models/types';
@@ -12,6 +13,7 @@ import type { ViewPreset } from '../../models/baseModel';
 import { newDesign } from '../../store/persistence';
 
 const TABS: { id: EditorTab; label: string; icon: Parameters<typeof Icon>[0]['name'] }[] = [
+  { id: 'model', label: '型', icon: 'boot' },
   { id: 'parts', label: 'パーツ', icon: 'shoe' },
   { id: 'color', label: '色', icon: 'palette' },
   { id: 'material', label: '素材', icon: 'cube' },
@@ -50,9 +52,11 @@ export function EditorScreen() {
 
   if (!design) return <div className="loading">読み込み中…</div>;
 
-  const rightTab = tab === 'parts' ? 'color' : tab;
+  const rightTab = tab === 'parts' || tab === 'model' ? 'color' : tab;
   const panel = (t: EditorTab) =>
-    t === 'parts' ? (
+    t === 'model' ? (
+      <ModelPanel />
+    ) : t === 'parts' ? (
       <PartList />
     ) : t === 'color' ? (
       <ColorPanel />
@@ -68,6 +72,8 @@ export function EditorScreen() {
     <div className={'editor ' + (isDesktop ? 'desktop' : 'mobile')}>
       {isDesktop && (
         <aside className="side left" aria-label="パーツ一覧">
+          <h2 className="side-title">MODEL</h2>
+          <ModelPanel compact />
           <h2 className="side-title">PARTS</h2>
           <PartList />
         </aside>
@@ -82,7 +88,7 @@ export function EditorScreen() {
       {isDesktop ? (
         <aside className="side right" aria-label="編集パネル">
           <div className="tabs" role="tablist">
-            {TABS.filter((t) => t.id !== 'parts').map((t) => (
+            {TABS.filter((t) => t.id !== 'parts' && t.id !== 'model').map((t) => (
               <button key={t.id} role="tab" aria-selected={rightTab === t.id} className={rightTab === t.id ? 'active' : ''} onClick={() => setTab(t.id)} data-tab={t.id}>
                 {t.label}
               </button>
@@ -94,7 +100,7 @@ export function EditorScreen() {
         <>
           {sheetOpen && (
             <div className="sheet" role="region" aria-label="編集パネル">
-              {tab !== 'parts' && tab !== 'decal' && <PartList compact />}
+              {tab !== 'parts' && tab !== 'decal' && tab !== 'model' && <PartList compact />}
               <div className="sheet-scroll">{panel(tab)}</div>
             </div>
           )}
@@ -208,6 +214,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
   const randomize = useEditor((s) => s.randomize);
   const mirror = useEditor((s) => s.mirror);
   const name = useEditor((s) => s.design?.name ?? '');
+  const baseModel = useEditor((s) => s.design?.baseModel);
   const rename = useEditor((s) => s.rename);
   const requestView = useApp((s) => s.requestView);
   const toast = useApp((s) => s.showToast);
@@ -217,7 +224,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
     <div className="toolbar">
       <div className="toolbar-row">
         <input className="name-input" value={name} onChange={(e) => rename(e.target.value)} onBlur={() => endBurst()} aria-label="作品名" maxLength={60} />
-        <button className="icon-btn" onClick={() => void newDesign().then(() => toast('新しいスニーカーを作成しました'))} title="新規作成" aria-label="新規作成" data-testid="new-design">
+        <button className="icon-btn" onClick={() => void newDesign(baseModel).then(() => toast('新しいスニーカーを作成しました'))} title="新規作成" aria-label="新規作成" data-testid="new-design">
           <Icon name="plus" />
         </button>
       </div>

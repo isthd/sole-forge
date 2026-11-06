@@ -91,4 +91,32 @@ describe('editor store (zustand + zundo)', () => {
     expect(copy.rotation).toBe(-20);
     expect(copy.flip).toBe(true);
   });
+
+  it('ベース型を切り替えられ、デカールは新しい型の表面へ載せ直され、Undo で戻る', () => {
+    endBurst();
+    s().startPlacing({ kind: 'logo', src: 'logo:hex', scale: 0.4, rotation: 0, flip: false });
+    // ハイカットのくるぶし付近（外側）。ローカットにはこの高さの面が無い
+    s().placeDecal('upper', [-0.9, 1.7, 0.42], [0, 0, 1]);
+    const before = s().design!.decals[0];
+    endBurst();
+    s().setBaseModel('lowtop-01');
+    const d = s().design!;
+    expect(d.baseModel).toBe('lowtop-01');
+    const after = d.decals[0];
+    expect(after.id).toBe(before.id);
+    expect(after.position[1]).toBeLessThan(1.3);
+    expect(after.position[2]).toBeGreaterThan(0.2);
+    expect(PART_IDS).toContain(after.part);
+    undo();
+    expect(s().design!.baseModel).toBe('hightop-01');
+    expect(s().design!.decals[0].position).toEqual(before.position);
+    redo();
+    expect(s().design!.baseModel).toBe('lowtop-01');
+  });
+
+  it('同じ型を選んでも履歴は増えない', () => {
+    const n = useEditor.temporal.getState().pastStates.length;
+    s().setBaseModel('hightop-01');
+    expect(useEditor.temporal.getState().pastStates.length).toBe(n);
+  });
 });

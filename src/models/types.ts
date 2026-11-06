@@ -38,7 +38,12 @@ export interface Decal {
   z: number; // 重ね順
 }
 
-export type BaseModelId = 'hightop-01';
+export type BaseModelId = 'hightop-01' | 'midcut-01' | 'lowtop-01' | 'platform-01';
+/** ベース型の ID（選択画面の表示順）。型を追加したらここと models/index.ts の登録表に足す */
+export const BASE_MODEL_IDS: BaseModelId[] = ['hightop-01', 'midcut-01', 'lowtop-01', 'platform-01'];
+export function isBaseModelId(v: unknown): v is BaseModelId {
+  return typeof v === 'string' && (BASE_MODEL_IDS as string[]).includes(v);
+}
 
 export interface CameraState {
   position: Vec3;

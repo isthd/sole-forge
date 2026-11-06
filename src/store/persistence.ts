@@ -3,7 +3,7 @@
  */
 import { useEditor } from './editorStore';
 import { useApp } from './appStore';
-import type { SneakerDesign } from '../models/types';
+import type { BaseModelId, SneakerDesign } from '../models/types';
 import { createDesign } from '../models/design';
 import { getDesign, getSetting, listDesigns, nextShelfOrder, putBlob, saveDesign, setSetting, thumbKey, getBlob } from '../db/repo';
 
@@ -87,10 +87,10 @@ export async function openDesign(id: string): Promise<boolean> {
   return true;
 }
 
-export async function newDesign(): Promise<SneakerDesign> {
+export async function newDesign(baseModel?: BaseModelId): Promise<SneakerDesign> {
   await flushSave();
   const order = await nextShelfOrder();
-  const d = createDesign(`SNEAKER #${String(order + 1).padStart(2, '0')}`, order);
+  const d = createDesign(`SNEAKER #${String(order + 1).padStart(2, '0')}`, order, baseModel);
   await saveDesign(d);
   useEditor.getState().loadDesign(d);
   useApp.getState().bumpShelf();

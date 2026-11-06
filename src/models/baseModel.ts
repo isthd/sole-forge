@@ -9,6 +9,8 @@ export type ViewPreset = 'front' | 'side' | 'back' | 'top' | 'threeQuarter';
 export interface BaseModelDef {
   id: BaseModelId;
   label: string;
+  /** 選択画面に出す一言説明 */
+  description: string;
   params: Record<string, number>;
   build: () => PartGeometries;
   /** カメラの注視点 */

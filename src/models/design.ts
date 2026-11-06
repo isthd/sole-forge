@@ -1,4 +1,4 @@
-import type { Decal, PartId, PartStyle, SneakerDesign } from './types';
+import type { BaseModelId, Decal, PartId, PartStyle, SneakerDesign } from './types';
 import { CURRENT_SCHEMA_VERSION, PART_IDS } from './types';
 
 export function uid(prefix = ''): string {
@@ -31,14 +31,14 @@ export const DEFAULT_PARTS: Record<PartId, PartStyle> = {
   laces: { color: '#F2F2EE', material: 'canvas' },
 };
 
-export function createDesign(name = '無題のスニーカー', shelfOrder = 0): SneakerDesign {
+export function createDesign(name = '無題のスニーカー', shelfOrder = 0, baseModel: BaseModelId = 'hightop-01'): SneakerDesign {
   const now = new Date().toISOString();
   const parts = {} as Record<PartId, PartStyle>;
   for (const p of PART_IDS) parts[p] = { ...DEFAULT_PARTS[p] };
   return {
     id: uid('d_'),
     name,
-    baseModel: 'hightop-01',
+    baseModel,
     parts,
     decals: [],
     favorite: false,

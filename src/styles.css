@@ -584,7 +584,7 @@ button:disabled {
 }
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   border-top: 1px solid var(--line);
   background: #0b0b0d;
   padding-bottom: env(safe-area-inset-bottom);
@@ -1051,4 +1051,47 @@ button:disabled {
 }
 .sheet .part-item {
   padding: 7px 8px;
+}
+
+/* ベース型の選択 */
+.model-list.compact {
+  padding: 4px 10px 6px;
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.model-tile {
+  gap: 4px;
+}
+.model-list.compact .model-tile {
+  padding: 6px 4px;
+  font-size: 11px;
+}
+.model-desc {
+  font-weight: 400;
+  text-align: center;
+  line-height: 1.35;
+}
+.model-sil {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.45;
+}
+.model-sil .sil-upper {
+  fill: var(--muted);
+}
+.model-sil .sil-mid {
+  fill: var(--text);
+}
+.model-sil .sil-out {
+  fill: #3a3a42;
+}
+.model-tile.active .sil-upper {
+  fill: var(--accent);
+}
+.panel-body .model-sil {
+  aspect-ratio: auto;
+  height: 52px;
 }

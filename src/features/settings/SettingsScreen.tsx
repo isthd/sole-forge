@@ -7,7 +7,7 @@ import { flushSave, newDesign } from '../../store/persistence';
 import { downloadBlob, stamp } from '../../lib/download';
 import { ScalePicker, BG_OPTIONS, BASE_EXPORT_SIZE } from '../editor/ExportDialog';
 import { Icon } from '../../ui/Icon';
-import { countTriangles, getBaseModel, getGeometries } from '../../models';
+import { BASE_MODEL_IDS, countTriangles, getBaseModel, getGeometries } from '../../models';
 
 function fmt(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -90,7 +90,7 @@ export function SettingsScreen() {
     }
   };
 
-  const tris = countTriangles(getGeometries(getBaseModel('hightop-01')));
+  const tris = Math.max(...BASE_MODEL_IDS.map((id) => countTriangles(getGeometries(getBaseModel(id)))));
 
   return (
     <div className="page">
@@ -218,7 +218,7 @@ export function SettingsScreen() {
             <dd>{swState}</dd>
             <dt>ベースモデル</dt>
             <dd>
-              ハイカット 01（{tris.toLocaleString()} ポリゴン / 足）
+              {BASE_MODEL_IDS.map((id) => getBaseModel(id).label).join(' / ')}（最大 {tris.toLocaleString()} ポリゴン / 片足）
             </dd>
           </dl>
           <p className="small muted">形・ロゴ・柄はすべてオリジナルです。実在ブランドのシルエットやロゴは収録していません。</p>

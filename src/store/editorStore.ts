@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
-import type { CameraState, Decal, MaterialId, PartId, PartStyle, PatternType, SneakerDesign } from '../models/types';
+import type { BaseModelId, CameraState, Decal, MaterialId, PartId, PartStyle, PatternType, SneakerDesign } from '../models/types';
 import { cloneDesign, mirrorDecals, normalizeHex, normalizeZ, uid } from '../models/design';
 import { randomParts } from './random';
+import { getBaseModel } from '../models';
+import { reprojectDecals } from '../models/reproject';
 
 export const HISTORY_LIMIT = 100;
 const BURST_MS = 400;
@@ -21,6 +23,8 @@ export interface EditorState {
 
   loadDesign: (d: SneakerDesign) => void;
   rename: (name: string) => void;
+  /** ベース型を切り替える（デカールは新しい型の表面へ載せ直す）。1 手として記録 */
+  setBaseModel: (id: BaseModelId) => void;
   selectPart: (p: PartId) => void;
   setPartColor: (p: PartId, color: string) => void;
   setMaterial: (p: PartId, m: MaterialId) => void;
@@ -76,6 +80,14 @@ export const useEditor = create<EditorState>()(
           useEditor.temporal.getState().clear();
         },
         rename: (name) => patchDesign((d) => ({ ...d, name: name.slice(0, 60) })),
+        setBaseModel: (id) => {
+          const d = get().design;
+          if (!d || d.baseModel === id) return;
+          endBurst();
+          const decals = reprojectDecals(d.decals, getBaseModel(d.baseModel), getBaseModel(id));
+          // 型ごとに高さが違うので、保存していた角度は使わず新しい型の標準の角度に戻す
+          set({ design: { ...d, baseModel: id, decals, camera: undefined }, camera: null });
+        },
         selectPart: (p) => set({ selectedPart: p }),
         setPartColor: (p, color) => {
           const c = normalizeHex(color);
