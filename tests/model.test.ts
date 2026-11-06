@@ -55,8 +55,8 @@ describe.each(BASE_MODEL_IDS)('%s procedural model', (id) => {
 });
 
 describe('ベース型の種類', () => {
-  it('4 種類以上あり、履き口の高さがすべて違う', () => {
-    expect(BASE_MODEL_IDS.length).toBeGreaterThanOrEqual(4);
+  it('5 種類以上あり、履き口の高さがすべて違う', () => {
+    expect(BASE_MODEL_IDS.length).toBeGreaterThanOrEqual(5);
     expect(Object.keys(BASE_MODELS).sort()).toEqual([...BASE_MODEL_IDS].sort());
     const heights = BASE_MODEL_IDS.map((id) => getBaseModel(id).params.collarBackHeight + getBaseModel(id).params.soleThickness);
     expect(new Set(heights).size).toBe(heights.length);

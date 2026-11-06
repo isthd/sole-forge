@@ -357,13 +357,13 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
     await expect.poll(async () => (await store(page).camera()).position[0]).toBeGreaterThan(5);
   });
 
-  test('ベース型（ハイカット / ミッドカット / ローカット / 厚底ロー）を選んで切り替えられる', async ({ page }) => {
+  test('ベース型（ランナー / ハイカット / ミッドカット / ローカット / 厚底ロー）を選んで切り替えられる', async ({ page }) => {
     await page.goto('/');
     await waitReady(page);
     const tiles = page.locator('.side.left [data-model]');
-    await expect(tiles).toHaveCount(4);
+    await expect(tiles).toHaveCount(5);
     await expect(page.locator('.side.left [data-model=hightop-01]')).toHaveAttribute('aria-checked', 'true');
-    for (const id of ['midcut-01', 'lowtop-01', 'platform-01']) {
+    for (const id of ['hicut-01', 'midcut-01', 'lowtop-01', 'platform-01']) {
       await page.locator(`.side.left [data-model=${id}]`).click();
       await expect.poll(async () => (await store(page).design()).baseModel).toBe(id);
       await expect(page.locator(`.side.left [data-model=${id}]`)).toHaveAttribute('aria-checked', 'true');

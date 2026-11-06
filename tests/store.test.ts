@@ -93,6 +93,7 @@ describe('editor store (zustand + zundo)', () => {
   });
 
   it('ベース型を切り替えられ、デカールは新しい型の表面へ載せ直され、Undo で戻る', () => {
+    s().loadDesign(createDesign('hi', 0, 'hicut-01'));
     endBurst();
     s().startPlacing({ kind: 'logo', src: 'logo:hex', scale: 0.4, rotation: 0, flip: false });
     // ハイカットのくるぶし付近（外側）。ローカットにはこの高さの面が無い
@@ -108,7 +109,7 @@ describe('editor store (zustand + zundo)', () => {
     expect(after.position[2]).toBeGreaterThan(0.2);
     expect(PART_IDS).toContain(after.part);
     undo();
-    expect(s().design!.baseModel).toBe('hightop-01');
+    expect(s().design!.baseModel).toBe('hicut-01');
     expect(s().design!.decals[0].position).toEqual(before.position);
     redo();
     expect(s().design!.baseModel).toBe('lowtop-01');

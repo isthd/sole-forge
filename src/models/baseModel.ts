@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BaseModelId, PartId, Vec3 } from './types';
 import { PART_IDS } from './types';
+import type { SneakerParams } from './sneakerBuilder';
 
 export type PartGeometries = Record<PartId, THREE.BufferGeometry>;
 export type ViewPreset = 'front' | 'side' | 'back' | 'top' | 'threeQuarter';
@@ -11,7 +12,7 @@ export interface BaseModelDef {
   label: string;
   /** 選択画面に出す一言説明 */
   description: string;
-  params: Record<string, number>;
+  params: SneakerParams;
   build: () => PartGeometries;
   /** カメラの注視点 */
   target: Vec3;

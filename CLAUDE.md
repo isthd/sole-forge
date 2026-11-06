@@ -15,7 +15,9 @@ src/
     design.ts        作品の生成・複製・左右ミラーなどの純粋関数
     baseModel.ts     ベース型の定義インターフェース（寸法パラメータ＋パーツ生成関数）
     sneakerBuilder.ts 共通のパーツ生成（寸法パラメータ → 10 パーツ）と defineSneaker()
-    hightop01.ts / midcut01.ts / lowtop01.ts / platform01.ts  各ベース型（寸法パラメータだけ）。型の追加 = このようなファイルを 1 つ足す
+    hightop01.ts     ベース型「ランナー 01」（ローカット・厚底。ID は互換のため hightop-01）
+    hicut01.ts / midcut01.ts / lowtop01.ts / platform01.ts  ハイカット / ミッドカット / ローカット / 厚底ロー
+                     各ベース型は寸法パラメータだけ。型の追加 = このようなファイルを 1 つ足す
     reproject.ts     型の切り替え時にデカールを新しい表面へ載せ直す
     index.ts         ベース型の登録表（types.ts の BaseModelId / BASE_MODEL_IDS にも足す）
   renderers/
@@ -37,7 +39,7 @@ scripts/gen-icons.mjs  アプリアイコン PNG の生成
 
 - **外部ネットワークへのリクエスト禁止**。フォント（@fontsource）・画像・テクスチャはすべて同梱かコードで生成する。drei の `Environment preset` や `Text`（CDN を読む）は使わない。環境光は `RoomEnvironment` をコードで生成
 - **実在ブランドの形やロゴは使わない**。付属ロゴ・サイドパネル・アイコンもオリジナル（ストライプ 3 本や流線形のスウッシュ風の形は避ける）
-- テクスチャは 1024px 以下、1 足（左右）5 万ポリゴン以下（現在 1 足片側 24,584、どの型も同じ）
+- テクスチャは 1024px 以下、1 足（左右）5 万ポリゴン以下（現在 1 足片側 最大 24,744）
 - 3D の描画は `frameloop="demand"`（操作中だけ描画）
 - UI: 背景 #0E0E10、アクセント #C6FF00、900px 未満はスマホレイアウト
 

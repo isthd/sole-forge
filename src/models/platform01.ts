@@ -1,11 +1,11 @@
 /** 厚底ローカット 1 型「platform-01」。分厚いソールとローカットのアッパー。 */
 import { defineSneaker, type SneakerParams } from './sneakerBuilder';
-import { HIGHTOP01_PARAMS } from './hightop01';
+import { HICUT01_PARAMS } from './hicut01';
 
 const LIFT = 0.26; // ソールを厚くした分だけアッパーを持ち上げる
 
 export const PLATFORM01_PARAMS: SneakerParams = {
-  ...HIGHTOP01_PARAMS,
+  ...HICUT01_PARAMS,
   outsoleThickness: 0.16,
   soleThickness: 0.36 + LIFT,
   toeSpring: 0.1,

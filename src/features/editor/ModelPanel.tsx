@@ -8,6 +8,7 @@ export function ModelSilhouette({ id }: { id: BaseModelId }) {
   const p = getBaseModel(id).params;
   const a = p.length / 2;
   const s = p.soleThickness;
+  const sh = p.soleHeelThickness ?? s; // かかと側のソール上面
   // 座標系: x = かかと(-) → つま先(+), y = 上。SVG は y が下向きなので反転する
   const upper = [
     [a - 0.05, s],
@@ -17,14 +18,17 @@ export function ModelSilhouette({ id }: { id: BaseModelId }) {
     [-0.92, p.collarHeight + (p.collarBackHeight - p.collarHeight) * 0.35 - p.collarDip],
     [-1.39, p.collarBackHeight],
     [-a + 0.04, p.collarBackHeight - 0.15],
-    [-a, s],
+    [-a, sh],
   ];
   const H = 2.2;
   const pt = ([x, y]: number[]) => `${(x + a + 0.1).toFixed(3)},${(H - y).toFixed(3)}`;
   return (
     <svg viewBox={`0 0 ${p.length + 0.2} ${H}`} className="model-sil" aria-hidden="true">
       <polygon points={upper.map(pt).join(' ')} className="sil-upper" />
-      <rect x={0.06} y={H - s} width={p.length + 0.08} height={s - p.outsoleThickness} rx={0.06} className="sil-mid" />
+      <polygon
+        points={[[a + 0.04, p.outsoleThickness], [a + 0.04, s], [-a - 0.04, sh + (p.midsoleLip ?? 0)], [-a - 0.04, p.outsoleThickness]].map(pt).join(' ')}
+        className="sil-mid"
+      />
       <rect x={0.06} y={H - p.outsoleThickness} width={p.length + 0.08} height={p.outsoleThickness} rx={0.04} className="sil-out" />
     </svg>
   );

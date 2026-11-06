@@ -1,9 +1,9 @@
 /** ローカット 1 型「lowtop-01」。くるぶしの下で履き口が切れ込む。 */
 import { defineSneaker, type SneakerParams } from './sneakerBuilder';
-import { HIGHTOP01_PARAMS } from './hightop01';
+import { HICUT01_PARAMS } from './hicut01';
 
 export const LOWTOP01_PARAMS: SneakerParams = {
-  ...HIGHTOP01_PARAMS,
+  ...HICUT01_PARAMS,
   throatHeight: 0.88,
   collarHeight: 1.1,
   collarBackHeight: 1.22,

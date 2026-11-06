@@ -21,6 +21,15 @@ export interface SneakerParams {
   collarHeight: number; // 履き口前側の高さ
   collarBackHeight: number; // 履き口うしろの高さ
   collarDip: number; // 履き口の両脇（くるぶし下）の切れ込みの深さ
+  /**
+   * 形のスタイル。classic = 平らなソールの定番型、runner = ランニング型
+   * （かかと側が厚いソール・かかとの立ち上がり・跳ね上げ・丸いトゥ・細いかかと）
+   */
+  style?: 'classic' | 'runner';
+  soleHeelThickness?: number; // runner: ソール上面の高さ（かかと側。厚底のドロップ）
+  midsoleLip?: number; // runner: かかとでミッドソールがアッパーを包み込む立ち上がり
+  heelRocker?: number; // runner: かかと底の跳ね上げ
+  pullTab?: number; // かかとのプルタブの長さ（0 / 省略で無し）
 }
 
 
@@ -35,13 +44,17 @@ const wrap01 = (s: number) => ((s % 1) + 1) % 1;
 
 export function createSneakerShape(p: SneakerParams) {
   const a = p.length / 2;
-  const widthAt = (x: number) => p.halfWidth * (0.8 + 0.2 * Math.exp(-(((x - 0.35) / 0.75) ** 2)));
-  const e = 2 / p.superN;
+  const runner = p.style === 'runner';
+  const widthAt = runner
+    ? (x: number) => p.halfWidth * (0.7 + 0.3 * Math.exp(-(((x - 0.3) / 0.9) ** 2))) * (1 - 0.05 * smooth(0.6, 1.5, x))
+    : (x: number) => p.halfWidth * (0.8 + 0.2 * Math.exp(-(((x - 0.35) / 0.75) ** 2)));
 
   /** 足形（ソール上面の輪郭）。theta: 0 = つま先, π = かかと, (0,π) が外側 */
   const rawOutline = (theta: number): [number, number] => {
     const c = Math.cos(theta);
     const s = Math.sin(theta);
+    // runner はつま先側を楕円に近い丸み、かかと側を少し角ばらせる
+    const e = 2 / (runner && c > 0 ? 2.2 : p.superN);
     const x = a * Math.sign(c) * Math.abs(c) ** e;
     const zn = Math.sign(s) * Math.abs(s) ** e;
     return [x, widthAt(x) * zn];
@@ -86,12 +99,25 @@ export function createSneakerShape(p: SneakerParams) {
     return w <= 0.5 ? { u: w / 0.5, sign: 1 } : { u: (1 - w) / 0.5, sign: -1 };
   };
 
-  const yBase = p.soleThickness - 0.06;
+  /** ソール上面（足を乗せる面）の高さ。runner はかかとが高い厚底 */
+  const heelT = p.soleHeelThickness ?? p.soleThickness;
+  const soleTop = runner
+    ? (x: number) => lerp(heelT, p.soleThickness, smooth(-1.15, -0.05, x)) - 0.05 * smooth(0.5, 1.5, x)
+    : () => p.soleThickness;
+  /** ミッドソール上端。runner はかかと周りでアッパーを包むように立ち上がる */
+  const midsoleTop = (x: number) => soleTop(x) + 0.02 + (p.midsoleLip ?? 0) * (1 - smooth(-1.0, -0.15, x));
+  /** かかと底の跳ね上げ（ソールの下側だけ持ち上げる） */
+  const rocker = (v: THREE.Vector3) => {
+    const r = p.heelRocker ?? 0;
+    if (r) v.y += r * smooth(-0.9, -1.6, v.x) ** 2 * (1 - clamp(v.y / 0.35, 0, 1));
+    return v;
+  };
+  const yBase = (x: number) => soleTop(x) - 0.06;
   const baseP = (s: number) => {
     const { u, sign } = sideOf(s);
     const th = u <= 0.5 ? (u / 0.5) * thetaMid : thetaMid + ((u - 0.5) / 0.5) * (Math.PI - thetaMid);
     const [x, z] = outline(th, 0);
-    return V(x, yBase, z * sign);
+    return V(x, yBase(x), z * sign);
   };
 
   const phi0 = (40 * Math.PI) / 180;
@@ -107,8 +133,14 @@ export function createSneakerShape(p: SneakerParams) {
       const t = (u - 0.5) / 0.5; // 履き口（カラー）
       const phi = lerp(phi0, Math.PI, t);
       x = -0.92 + 0.47 * Math.cos(phi);
-      z = 0.4 * Math.sin(phi);
-      y = p.collarHeight + (p.collarBackHeight - p.collarHeight) * t ** 1.5 - p.collarDip * Math.sin(Math.PI * t) ** 1.5;
+      if (runner) {
+        z = 0.37 * Math.sin(phi);
+        // 前端（シューレース上端）→ くるぶしで下がる → かかとで持ち上がる
+        y = lerp(p.collarHeight, p.collarBackHeight, smooth(0, 1, t)) - p.collarDip * Math.sin(Math.PI * t ** 0.9) ** 1.4;
+      } else {
+        z = 0.4 * Math.sin(phi);
+        y = p.collarHeight + (p.collarBackHeight - p.collarHeight) * t ** 1.5 - p.collarDip * Math.sin(Math.PI * t) ** 1.5;
+      }
     }
     return V(x, y, z * sign);
   };
@@ -123,12 +155,13 @@ export function createSneakerShape(p: SneakerParams) {
     const dv = T.y - B.y;
     const k = clamp((dh / dv) * 1.2, 0, 1);
     // つま先側(k≈1)は低く寝かせたトゥボックス、かかと側(k≈0)はほぼ垂直に立ち上げる
+    // classic: つま先側(k≈1)は低く寝かせたトゥボックス / runner: 丸く盛り上がったトゥボックス。かかと側(k≈0)はほぼ垂直
     const C1 = B.clone()
-      .add(V(0, dv * (0.5 - 0.2 * k), 0))
-      .addScaledVector(dir, dh * 0.2 * k - 0.05);
+      .add(V(0, dv * (0.5 - (runner ? 0.06 : 0.2) * k), 0))
+      .addScaledVector(dir, dh * (runner ? 0.08 : 0.2) * k - 0.05);
     const C2 = T.clone()
-      .addScaledVector(dir, -dh * 0.7 * k)
-      .add(V(0, -dv * 0.35 * (1 - k) - dv * 0.22 * k, 0));
+      .addScaledVector(dir, -dh * (runner ? 0.66 : 0.7) * k)
+      .add(V(0, -dv * 0.35 * (1 - k) - dv * (runner ? 0.2 : 0.22) * k, 0));
     const it = 1 - h;
     return B.multiplyScalar(it * it * it)
       .addScaledVector(C1, 3 * it * it * h)
@@ -153,7 +186,7 @@ export function createSneakerShape(p: SneakerParams) {
   const normalSign = rawNormal(0.25, 0.5).z > 0 ? 1 : -1;
   const upperN = (s: number, h: number) => rawNormal(s, h).multiplyScalar(normalSign);
 
-  return { a, p, outline, warp, upperP, upperN, tangents, topP, baseP, yBase };
+  return { a, p, runner, outline, warp, rocker, soleTop, midsoleTop, upperP, upperN, tangents, topP, baseP, yBase };
 }
 
 type Shape = ReturnType<typeof createSneakerShape>;
@@ -239,7 +272,7 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false): T
   return g;
 }
 
-/** ソール: 足形の輪郭を押し出し（ExtrudeGeometry） */
+/** ソール（classic）: 足形の輪郭を押し出し（ExtrudeGeometry） */
 function sole(shape: Shape, inflate: number, y0: number, y1: number, bevel: number): THREE.BufferGeometry {
   const pts: THREE.Vector2[] = [];
   const N = 120;
@@ -290,16 +323,80 @@ function sole(shape: Shape, inflate: number, y0: number, y1: number, bevel: numb
   return g;
 }
 
+/** ソール（runner）: 足形の輪郭を押し出し、上面を top(x) に合わせて伸縮する */
+function stretchedSole(
+  shape: Shape,
+  inflate: number,
+  y0: number,
+  top: (x: number) => number,
+  bevel: number,
+  bevelSegments: number,
+): THREE.BufferGeometry {
+  const y1 = 1; // いったん高さ 1 で押し出し、あとで上面を top(x) に合わせて伸縮する
+  const pts: THREE.Vector2[] = [];
+  const N = 120;
+  for (let i = 0; i < N; i++) {
+    const [x, z] = shape.outline((i / N) * Math.PI * 2, inflate - bevel);
+    pts.push(new THREE.Vector2(x, -z));
+  }
+  const sh = new THREE.Shape(pts);
+  const depth = y1 - y0 - bevel * 2;
+  let g: THREE.BufferGeometry = new THREE.ExtrudeGeometry(sh, {
+    depth,
+    steps: 1,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments,
+    curveSegments: 1,
+  });
+  g.rotateX(-Math.PI / 2);
+  g.translate(0, y0 + bevel, 0);
+  g.deleteAttribute('uv');
+  g.deleteAttribute('normal');
+  g = mergeVertices(g, 1e-5);
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const f = (v.y - y0) / (y1 - y0);
+    v.y = y0 + f * (top(v.x) - y0);
+    shape.rocker(v);
+    shape.warp(v);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  let yMax = y0;
+  for (let i = 0; i < pos.count; i++) yMax = Math.max(yMax, pos.getY(i));
+  // UV: 長さ方向 × (側面は高さ / 上下面は幅)
+  const nor = g.getAttribute('normal') as THREE.BufferAttribute;
+  const uv: number[] = [];
+  const L = shape.a * 2 + 0.2;
+  const W = shape.p.halfWidth * 2 + 0.2;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ny = Math.abs(nor.getY(i));
+    const u = (x + L / 2) / L;
+    const vv = ny > 0.7 ? (z + W / 2) / W : clamp((y - y0) / (yMax - y0 + 0.15), 0, 1);
+    uv.push(u, vv);
+  }
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.userData.uvSize = [L * 1.3, Math.max(yMax - y0, 0.4)];
+  return g;
+}
+
 function buildTongue(shape: Shape): THREE.BufferGeometry {
   const p = shape.p;
   const throatY = (x: number) => {
     if (x > 0.55) return p.throatHeight - (x - 0.55) * 0.6;
     const t = (0.55 - x) / 1.11;
     if (t <= 1) return p.throatHeight + (p.collarHeight - p.throatHeight) * t ** 0.9;
-    return p.collarHeight + (-0.56 - x) * 2.2;
+    return p.collarHeight + (-0.56 - x) * (shape.runner ? 0.9 : 2.2);
   };
   const tp = (t: number, w: number) => {
-    const x = lerp(0.68, -0.7, t);
+    const x = lerp(0.68, shape.runner ? -0.72 : -0.7, t);
     const halfW = lerp(0.2, 0.3, smooth(0, 0.35, t)) * (1 - 0.12 * smooth(0.85, 1, t));
     const z = w * halfW;
     const y = throatY(x) + 0.04 - 1.3 * z * z;
@@ -342,6 +439,62 @@ function buildTongue(shape: Shape): THREE.BufferGeometry {
   g.setIndex(idx);
   fixWinding(g);
   g.userData.uvSize = [0.55, 1.6];
+  return g;
+}
+
+/** かかと上端のプルタブ。履き口うしろの曲面から上へ伸ばした角丸の帯 */
+function buildPullTab(shape: Shape): THREE.BufferGeometry {
+  const len = shape.p.pullTab ?? 0;
+  const hw = 0.05; // s 方向の半幅（かかと中心 s=0.5 から）
+  const h0 = 0.72;
+  const nu = 8;
+  const nv = 10;
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const total = 1 - h0 + 1; // 曲面部分 + 突き出し部分を 0..1 に並べる
+  for (let i = 0; i <= nu; i++) {
+    const w = lerp(-1, 1, i / nu);
+    for (let j = 0; j <= nv; j++) {
+      const v = j / nv;
+      const k = v * total;
+      let pt: THREE.Vector3;
+      let n: THREE.Vector3;
+      let shrink = 1;
+      if (k <= 1 - h0) {
+        const h = h0 + k;
+        const s = 0.5 + w * hw;
+        n = shape.upperN(s, h);
+        pt = shape.upperP(s, h).addScaledVector(n, 0.026);
+      } else {
+        const e = (k - (1 - h0)) / 1; // 0..1 突き出し
+        shrink = 1 - 0.3 * smooth(0.55, 1, e) ** 2; // 上端の角を丸める
+        const s = 0.5 + w * hw * shrink;
+        n = shape.upperN(s, 1);
+        const up = shape.tangents(s, 1).dh.normalize();
+        // 少しうしろに反らせる
+        up.addScaledVector(n, 0.35 * e).normalize();
+        pt = shape.upperP(s, 1).addScaledVector(n, 0.026).addScaledVector(up, len * e);
+      }
+      pos.push(pt.x, pt.y, pt.z);
+      nor.push(n.x, n.y, n.z);
+      uv.push(i / nu, v);
+    }
+  }
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const A = i * (nv + 1) + j;
+      const B = (i + 1) * (nv + 1) + j;
+      idx.push(A, B, A + 1, B, B + 1, A + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  fixWinding(g);
   return g;
 }
 
@@ -495,7 +648,7 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
   );
 
   const heelW = 0.17;
-  const heel = surface(
+  const heelOverlay = surface(
     shape,
     [
       {
@@ -532,8 +685,17 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
   const tongue = buildTongue(shape);
   const laces = buildLaces(shape);
   const p = shape.p;
-  const midsole = sole(shape, 0.045, p.outsoleThickness - 0.015, p.soleThickness, 0.022);
-  const outsole = sole(shape, 0.06, 0, p.outsoleThickness, 0.02);
+  const midsole = shape.runner
+    ? stretchedSole(shape, 0.045, p.outsoleThickness - 0.015, shape.midsoleTop, 0.06, 3)
+    : sole(shape, 0.045, p.outsoleThickness - 0.015, p.soleThickness, 0.022);
+  const outsole = shape.runner
+    ? stretchedSole(shape, 0.055, 0, () => p.outsoleThickness, 0.02, 1)
+    : sole(shape, 0.06, 0, p.outsoleThickness, 0.02);
+  let heel = heelOverlay;
+  if (p.pullTab) {
+    heel = mergeGeometries([heelOverlay, buildPullTab(shape)])!;
+    heel.userData.uvSize = heelOverlay.userData.uvSize;
+  }
 
   const parts: PartGeometries = {
     upper,
@@ -581,7 +743,14 @@ function fixWinding(g: THREE.BufferGeometry) {
 }
 
 /** 寸法パラメータから型の定義を作る。カメラの注視点と各視点は靴の高さに合わせて決める。 */
-export function defineSneaker(id: BaseModelId, label: string, description: string, params: SneakerParams): BaseModelDef {
+export function defineSneaker(
+  id: BaseModelId,
+  label: string,
+  description: string,
+  params: SneakerParams,
+  /** 自動で決まる注視点・視点を型ごとに上書きしたいとき */
+  view: Partial<Pick<BaseModelDef, 'target' | 'defaultCamera' | 'presets'>> = {},
+): BaseModelDef {
   const ty = Math.round((0.1 + params.collarBackHeight * 0.425) * 100) / 100;
   const at = (x: number, dy: number, z: number): Vec3 => [x, Math.round((ty + dy) * 100) / 100, z];
   return {
@@ -600,5 +769,6 @@ export function defineSneaker(id: BaseModelId, label: string, description: strin
       threeQuarter: at(3.2, 1.35, 4.6),
     },
     doubleSided: ['toe', 'heel', 'eyestay', 'sidePanel', 'tongue'],
+    ...view,
   };
 }
