@@ -131,9 +131,13 @@ function Viewport() {
   const selectedDecalId = useEditor((s) => s.selectedDecalId);
   const camera = useEditor((s) => s.camera);
   const moveMode = useEditor((s) => s.moveMode);
-  const placing = useEditor((s) => !!s.placing);
+  const placingDraft = useEditor((s) => s.placing);
+  const placing = !!placingDraft;
+  const sprayMode = useEditor((s) => s.sprayMode);
   const viewRequest = useApp((s) => s.viewRequest);
   const nudgeRequest = useApp((s) => s.nudgeRequest);
+  const processFx = useApp((s) => s.processFx);
+  const paintOrigin = useApp((s) => s.paintOrigin);
   const highlight = useHighlight();
   const [initialCamera, setInitialCamera] = useState(camera);
   useEffect(() => setInitialCamera(useEditor.getState().camera), [design.id]);
@@ -148,12 +152,22 @@ function Viewport() {
       nudgeRequest={nudgeRequest}
       dragMode={moveMode && !!selectedDecalId}
       placing={placing}
+      placingDraft={placingDraft}
+      spray={sprayMode}
+      processFx={processFx}
+      paintOrigin={paintOrigin}
       onPick={(p) => {
         const s = useEditor.getState();
         const app = useApp.getState();
         if (s.placing && p.part) {
           s.placeDecal(p.part, p.position, p.normal);
           app.showToast('貼り付けました');
+          return;
+        }
+        // タップした位置を塗りの起点にする（スプレーもパネルからの色変更も、ここから塗り広がる）
+        if (p.part) app.setPaintOrigin({ part: p.part, position: p.position, normal: p.normal });
+        if (s.sprayMode && p.part) {
+          s.sprayPart(p.part);
           return;
         }
         if (p.decalId) {
@@ -177,6 +191,9 @@ function Viewport() {
         if (p.part) useEditor.getState().updateDecal(id, { part: p.part, position: p.position, normal: p.normal });
       }}
       onCameraChange={(c) => useEditor.getState().setCamera(c)}
+      onDecalTransformStart={() => endBurst()}
+      onDecalTransform={(id, patch) => useEditor.getState().updateDecal(id, patch)}
+      onDecalTransformEnd={() => endBurst()}
     />
   );
 }
@@ -187,6 +204,19 @@ function PlacingBanner() {
   const selectedDecalId = useEditor((s) => s.selectedDecalId);
   const startPlacing = useEditor((s) => s.startPlacing);
   const setMoveMode = useEditor((s) => s.setMoveMode);
+  const sprayMode = useEditor((s) => s.sprayMode);
+  const brush = useEditor((s) => s.brushColor);
+  const setSprayMode = useEditor((s) => s.setSprayMode);
+  if (sprayMode)
+    return (
+      <div className="banner" role="status" data-testid="spray-banner">
+        <span className="brush-dot" style={{ background: brush }} aria-hidden="true" />
+        スプレー: タップして塗る
+        <button className="btn small" onClick={() => setSprayMode(false)}>
+          完了
+        </button>
+      </div>
+    );
   if (placing)
     return (
       <div className="banner" role="status">
@@ -311,6 +341,7 @@ function useShortcuts() {
       if (e.key === 'Escape') {
         s.startPlacing(null);
         s.setMoveMode(false);
+        s.setSprayMode(false);
       }
       if (s.selectedDecalId && e.key.startsWith('Arrow')) {
         e.preventDefault();

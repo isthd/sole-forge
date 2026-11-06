@@ -105,14 +105,15 @@ export function bootstrap(): Promise<void> {
   return booting;
 }
 async function doBootstrap() {
-  const [recent, scale, bg, lastId] = await Promise.all([
+  const [recent, scale, bg, lastId, processFx] = await Promise.all([
     getSetting<string[]>('recentColors', []),
     getSetting<1 | 2 | 4>('exportScale', 2),
     getSetting<string | null>('exportBg', null),
     getSetting<string | null>('lastDesignId', null),
+    getSetting<boolean | null>('processFx', null),
   ]);
   useEditor.getState().setRecentColors(recent);
-  useApp.setState({ exportScale: scale, exportBg: bg });
+  useApp.setState({ exportScale: scale, exportBg: bg, ...(typeof processFx === 'boolean' ? { processFx } : {}) });
   let opened = false;
   if (lastId) opened = await openDesign(lastId);
   if (!opened) {

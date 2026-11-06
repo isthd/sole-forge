@@ -4,6 +4,7 @@ import { useApp } from '../../store/appStore';
 import type { MaterialId, PartId, PatternType } from '../../models/types';
 import { MATERIAL_IDS, MATERIAL_LABELS, PART_IDS, PART_LABELS, PATTERN_LABELS, PATTERN_TYPES } from '../../models/types';
 import { normalizeHex } from '../../models/design';
+import { Icon } from '../../ui/Icon';
 
 export const SWATCHES = [
   '#0E0E10', '#2A2A30', '#6B6B73', '#B8B8BE', '#F2F2EE', '#FFFFFF',
@@ -126,16 +127,40 @@ export function ColorPanel() {
   const { part, style } = usePart();
   const setColor = useEditor((s) => s.setPartColor);
   const push = useEditor((s) => s.pushRecentColor);
+  const sprayMode = useEditor((s) => s.sprayMode);
+  const setSprayMode = useEditor((s) => s.setSprayMode);
+  const setBrush = useEditor((s) => s.setBrushColor);
   if (!style) return null;
   const pick = (c: string) => {
     endBurst();
     setColor(part, c);
+    setBrush(c);
     push(c);
   };
   return (
     <div className="panel-body">
       <PanelHead part={part} />
-      <ColorField value={style.color} label={PART_LABELS[part]} onLive={(c) => setColor(part, c)} onCommit={push} />
+      <ColorField
+        value={style.color}
+        label={PART_LABELS[part]}
+        onLive={(c) => {
+          setColor(part, c);
+          setBrush(c);
+        }}
+        onCommit={push}
+      />
+      <button
+        className={'btn wide' + (sprayMode ? ' primary' : '')}
+        aria-pressed={sprayMode}
+        data-testid="spray-mode"
+        onClick={() => {
+          if (!sprayMode) setBrush(style.color);
+          setSprayMode(!sprayMode);
+        }}
+      >
+        <Icon name="spray" /> {sprayMode ? 'スプレー中（パーツをタップ）' : 'この色をスプレーで塗る'}
+      </button>
+      <p className="muted small">モデルをタップした位置から塗り広がります。</p>
       {style.pattern && <p className="muted small">柄が有効です。柄の色は「柄」タブで変更できます。</p>}
       <Swatches onPick={pick} />
     </div>

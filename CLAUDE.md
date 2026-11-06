@@ -22,7 +22,8 @@ src/
     index.ts         ベース型の登録表（types.ts の BaseModelId / BASE_MODEL_IDS にも足す）
   renderers/
     three/           作品 → Three.js オブジェクト（SneakerView）、テクスチャ、デカール、オフスクリーン PNG
-    r3f/             @react-three/fiber の 3D ビュー（操作・カメラ）
+      fx/            制作過程の 3D 演出（塗り広げのシェーダー、スプレー缶、ステッカーの反りとヘラ、計算は processMath.ts）
+    r3f/             @react-three/fiber の 3D ビュー（操作・カメラ）、DecalGizmo（選択中デカールの 3D ハンドル）
     logos.ts         付属のオリジナルロゴ・フォント定義
   store/             Zustand ストア（editorStore = 作品と Undo 履歴、appStore = 画面状態、persistence = 自動保存）
   db/                Dexie（db.ts）、CRUD（repo.ts）、JSON バックアップとマイグレーション（backup.ts）
@@ -40,7 +41,7 @@ scripts/gen-icons.mjs  アプリアイコン PNG の生成
 - **外部ネットワークへのリクエスト禁止**。フォント（@fontsource）・画像・テクスチャはすべて同梱かコードで生成する。drei の `Environment preset` や `Text`（CDN を読む）は使わない。環境光は `RoomEnvironment` をコードで生成
 - **実在ブランドの形やロゴは使わない**。付属ロゴ・サイドパネル・アイコンもオリジナル（ストライプ 3 本や流線形のスウッシュ風の形は避ける）
 - テクスチャは 1024px 以下、1 足（左右）5 万ポリゴン以下（現在 1 足片側 最大 24,744）
-- 3D の描画は `frameloop="demand"`（操作中だけ描画）
+- 3D の描画は `frameloop="demand"`（操作中だけ描画）。演出は動いている間だけ次のフレームを要求し、エディタ以外（サムネイル・書き出し・棚）では使わない
 - UI: 背景 #0E0E10、アクセント #C6FF00、900px 未満はスマホレイアウト
 
 ## コマンド

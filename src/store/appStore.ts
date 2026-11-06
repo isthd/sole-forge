@@ -1,5 +1,23 @@
 import { create } from 'zustand';
 import type { ViewPreset } from '../models/baseModel';
+import type { PartId, Vec3 } from '../models/types';
+
+/** モデル上でタップした位置（塗りの起点に使う） */
+export interface PaintOrigin {
+  part: PartId;
+  position: Vec3;
+  normal: Vec3;
+  nonce: number;
+}
+
+/** 動きを減らす設定の端末では、制作過程の演出を最初からオフにする */
+function defaultProcessFx(): boolean {
+  try {
+    return !(typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch {
+    return true;
+  }
+}
 
 export type Route = 'editor' | 'shelf' | 'settings';
 export type ExportScale = 1 | 2 | 4;
@@ -18,6 +36,9 @@ export interface AppState {
   sheetOpen: boolean;
   flashPart: { part: string; nonce: number } | null;
   dialog: DialogState | null;
+  /** 着色・デカール貼り付けの過程を 3D で見せる */
+  processFx: boolean;
+  paintOrigin: PaintOrigin | null;
 
   setRoute: (r: Route) => void;
   setReady: () => void;
@@ -30,6 +51,8 @@ export interface AppState {
   setEditorTab: (t: EditorTab) => void;
   setSheetOpen: (o: boolean) => void;
   flash: (part: string) => void;
+  setProcessFx: (on: boolean) => void;
+  setPaintOrigin: (p: Omit<PaintOrigin, 'nonce'> | null) => void;
 }
 
 export type DialogState =
@@ -52,6 +75,8 @@ export const useApp = create<AppState>()((set) => ({
   sheetOpen: true,
   flashPart: null,
   dialog: null,
+  processFx: defaultProcessFx(),
+  paintOrigin: null,
 
   setRoute: (route) => {
     set({ route });
@@ -67,6 +92,8 @@ export const useApp = create<AppState>()((set) => ({
   setEditorTab: (editorTab) => set({ editorTab, sheetOpen: true }),
   setSheetOpen: (sheetOpen) => set({ sheetOpen }),
   flash: (part) => set({ flashPart: { part, nonce: ++nonce } }),
+  setProcessFx: (processFx) => set({ processFx }),
+  setPaintOrigin: (p) => set({ paintOrigin: p ? { ...p, nonce: ++nonce } : null }),
 }));
 
 export function confirmDialog(title: string, message: string, danger = false): Promise<boolean> {

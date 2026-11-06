@@ -182,6 +182,7 @@ function DecalEditor({ decal }: { decal: Decal }) {
   const step = 0.04;
   return (
     <div className="decal-editor" data-testid="decal-editor">
+      <p className="muted small">3D 上でも操作できます: デカールをドラッグで移動、上の丸で回転、右下の四角で拡大・縮小。</p>
       <button className={'btn wide' + (moveMode ? ' primary' : '')} aria-pressed={moveMode} onClick={() => setMoveMode(!moveMode)} data-testid="move-mode">
         <Icon name="move" /> {moveMode ? '移動モード中（モデル上をドラッグ）' : '移動モード'}
       </button>

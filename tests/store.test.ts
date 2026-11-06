@@ -115,6 +115,42 @@ describe('editor store (zustand + zundo)', () => {
     expect(s().design!.baseModel).toBe('lowtop-01');
   });
 
+  it('スプレーモード: タップしたパーツをブラシの色で塗る（柄は外す・1 手・パーツを選ぶ）', () => {
+    endBurst();
+    s().setPattern('toe', 'check');
+    s().setBrushColor('#ff3cac');
+    expect(s().brushColor).toBe('#FF3CAC');
+    s().setSprayMode(true);
+    const n = useEditor.temporal.getState().pastStates.length;
+    s().sprayPart('toe');
+    expect(s().design!.parts.toe.color).toBe('#FF3CAC');
+    expect(s().design!.parts.toe.pattern).toBeUndefined();
+    expect(s().selectedPart).toBe('toe');
+    expect(s().recentColors[0]).toBe('#FF3CAC');
+    expect(useEditor.temporal.getState().pastStates.length).toBe(n + 1);
+    // 同じ色をもう一度塗っても履歴は増えない
+    s().sprayPart('toe');
+    expect(useEditor.temporal.getState().pastStates.length).toBe(n + 1);
+    undo();
+    expect(s().design!.parts.toe.pattern?.type).toBe('check');
+  });
+
+  it('スプレー・貼り付け・移動モードは同時に有効にならない', () => {
+    s().startPlacing({ kind: 'logo', src: 'logo:hex', scale: 0.4, rotation: 0, flip: false });
+    const id = s().placeDecal('upper', [0, 1, 0.5], [0, 0, 1])!;
+    s().setMoveMode(true);
+    s().setSprayMode(true);
+    expect(s().moveMode).toBe(false);
+    expect(s().selectedDecalId).toBeNull();
+    s().startPlacing({ kind: 'logo', src: 'logo:hex', scale: 0.4, rotation: 0, flip: false });
+    expect(s().sprayMode).toBe(false);
+    s().setSprayMode(true);
+    expect(s().placing).toBeNull();
+    s().selectDecal(id);
+    s().setMoveMode(true);
+    expect(s().sprayMode).toBe(false);
+  });
+
   it('同じ型を選んでも履歴は増えない', () => {
     const n = useEditor.temporal.getState().pastStates.length;
     s().setBaseModel('hightop-01');

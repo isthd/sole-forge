@@ -23,6 +23,8 @@ export function SettingsScreen() {
   const setScale = useApp((s) => s.setExportScale);
   const setBg = useApp((s) => s.setExportBg);
   const bump = useApp((s) => s.bumpShelf);
+  const processFx = useApp((s) => s.processFx);
+  const setProcessFx = useApp((s) => s.setProcessFx);
   const [stats, setStats] = useState<{ usage?: number; quota?: number; designs: number; images: number; imageBytes: number; persisted?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
@@ -118,6 +120,31 @@ export function SettingsScreen() {
               />
             </label>
             {busy && <span className="progress">{busy}</span>}
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>制作過程の演出</h2>
+          <p className="muted small">色を変えるとスプレー缶が吹き付けて塗り広がり、デカールはヘラで押し付けて貼る様子を 3D で見せます。素材の張り替えや、デカールをはがす動きも再現します。</p>
+          <div className="seg" role="radiogroup" aria-label="制作過程の演出">
+            {[
+              { on: true, label: 'オン' },
+              { on: false, label: 'オフ（すぐ反映）' },
+            ].map((o) => (
+              <button
+                key={o.label}
+                role="radio"
+                aria-checked={processFx === o.on}
+                className={processFx === o.on ? 'active' : ''}
+                data-testid={o.on ? 'fx-on' : 'fx-off'}
+                onClick={() => {
+                  setProcessFx(o.on);
+                  void setSetting('processFx', o.on);
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
         </section>
 

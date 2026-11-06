@@ -11,7 +11,11 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { CameraState, Decal, PartId, SneakerDesign, Vec3 } from '../../models/types';
 import { getBaseModel } from '../../models';
 import type { ViewPreset } from '../../models/baseModel';
-import { SneakerView, addStageLights } from '../three/SneakerView';
+import { SneakerView, addStageLights, type DecalPreview, type FxStats, type PaintOrigin } from '../three/SneakerView';
+import { DecalGizmo, type DecalTransformPatch, type GizmoScreenPoints } from './DecalGizmo';
+
+/** 貼り付け待ちのデカール（位置はタップで決まる） */
+export type PlacingDraft = Omit<DecalPreview, 'part' | 'position' | 'normal'>;
 
 export interface PickInfo {
   part: PartId | null;
@@ -38,12 +42,31 @@ export interface SneakerCanvasProps {
   onNudged?: (id: string, p: PickInfo) => void;
   onCameraChange?: (c: CameraState) => void;
   className?: string;
+  /** 着色・貼り付けの過程を 3D で見せる（エディタだけ） */
+  processFx?: boolean;
+  /** 最後にタップした位置（塗りの起点） */
+  paintOrigin?: PaintOrigin | null;
+  /** 貼り付け待ちのデカール。カーソル位置に半透明で表示する */
+  placingDraft?: PlacingDraft | null;
+  /** スプレーモード中（3D ハンドルを出さない） */
+  spray?: boolean;
+  /** 3D ハンドルで選択中のデカールを動かした */
+  onDecalTransformStart?: () => void;
+  onDecalTransform?: (id: string, patch: DecalTransformPatch) => void;
+  onDecalTransformEnd?: () => void;
 }
 
 const tmpV = new THREE.Vector3();
 
 function toPick(e: ThreeEvent<PointerEvent | MouseEvent>, root: THREE.Object3D, skipDecals: boolean, skipLaces = false): PickInfo | null {
-  for (const hit of e.intersections) {
+  // デカールは表面とほぼ同じ距離にあるので、すぐ近くにデカールがあればそちらを優先する
+  let hits = e.intersections;
+  if (!skipDecals) {
+    const first = hits.find((h) => h.object.userData.partId || h.object.userData.decalId);
+    const decalHit = first && hits.find((h) => h.object.userData.decalId && h.distance <= first.distance + 0.03);
+    if (decalHit) hits = [decalHit, ...hits];
+  }
+  for (const hit of hits) {
     const o = hit.object;
     const decalId = o.userData.decalId as string | undefined;
     const part = o.userData.partId as PartId | undefined;
@@ -110,18 +133,128 @@ function FrameCounter() {
   return null;
 }
 
-function Model(props: SneakerCanvasProps & { controls: React.MutableRefObject<OrbitControlsImpl | null> }) {
+interface FxDebug {
+  stats: () => FxStats;
+  handles: () => GizmoScreenPoints | null;
+  view: SneakerView;
+}
+
+type SceneProps = SneakerCanvasProps & {
+  controls: React.MutableRefObject<OrbitControlsImpl | null>;
+  container: React.RefObject<HTMLDivElement>;
+};
+
+/** 3D シーン: 作品のビュー（SneakerView）と、選択中デカールのハンドル */
+function Scene(props: SceneProps) {
   const { invalidate } = useThree();
   const def = getBaseModel(props.design.baseModel);
   const view = useMemo(() => new SneakerView(def, () => invalidate()), [def, invalidate]);
-  const dragging = useRef(false);
   useEffect(() => () => view.dispose(), [view]);
+  const gizmoDebug = useRef<(() => GizmoScreenPoints | null) | null>(null);
+  const selected = props.design.decals.find((d) => d.id === props.selectedDecalId) ?? null;
+
+  // E2E・デバッグ用（外部通信なし）
   useEffect(() => {
-    view.setParts(props.design.parts, props.highlightPart ?? null);
+    if (!props.processFx) return;
+    const w = window as unknown as { __sfFx?: FxDebug };
+    const api: FxDebug = { stats: () => view.fxStats(), handles: () => gizmoDebug.current?.() ?? null, view };
+    w.__sfFx = api;
+    return () => {
+      if (w.__sfFx === api) delete w.__sfFx;
+    };
+  }, [view, props.processFx]);
+
+  return (
+    <>
+      <Model {...props} view={view} />
+      {props.processFx && (
+        <DecalGizmo
+          view={view}
+          decal={selected}
+          enabled={!props.placing && !props.dragMode && !props.spray}
+          container={props.container}
+          controls={props.controls}
+          controlsEnabled={() => !props.dragMode}
+          onStart={props.onDecalTransformStart}
+          onChange={props.onDecalTransform}
+          onEnd={props.onDecalTransformEnd}
+          debugRef={gizmoDebug}
+        />
+      )}
+    </>
+  );
+}
+
+function Model(props: SceneProps & { view: SneakerView }) {
+  const { invalidate, camera, raycaster } = useThree();
+  const view = props.view;
+  const dragging = useRef(false);
+  const originRef = useRef(props.paintOrigin ?? null);
+  originRef.current = props.paintOrigin ?? null;
+  const partsDesign = useRef<string | null>(null);
+  const decalsDesign = useRef<string | null>(null);
+
+  useEffect(() => {
+    // 別の作品を開いたときは演出なしでそのまま表示する
+    const same = partsDesign.current === props.design.id;
+    partsDesign.current = props.design.id;
+    view.setParts(props.design.parts, props.highlightPart ?? null, {
+      animate: !!props.processFx && same,
+      origin: originRef.current,
+      eye: camera.position,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, props.design.parts, props.highlightPart]);
   useEffect(() => {
-    void view.setDecals(props.design.decals, props.selectedDecalId ?? null);
+    const same = decalsDesign.current === props.design.id;
+    decalsDesign.current = props.design.id;
+    void view.setDecals(props.design.decals, props.selectedDecalId ?? null, { animate: !!props.processFx && same });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, props.design.decals, props.selectedDecalId]);
+
+  // 演出（塗り広げ・スプレー缶・ステッカー）を進める。動いている間だけ次のフレームを要求する
+  useFrame(() => {
+    if (view.tick(performance.now(), camera)) invalidate();
+  });
+
+  // ---- 貼り付け待ちのプレビュー（ゴースト） ----
+  const draft = props.placingDraft ?? null;
+  const ghost = useRef<{ pick: PickInfo | null; dirty: boolean }>({ pick: null, dirty: false });
+  const draftKey = draft ? JSON.stringify(draft) : '';
+  useEffect(() => {
+    if (!draft || !props.processFx) {
+      view.setGhost(null);
+      ghost.current = { pick: null, dirty: false };
+      return;
+    }
+    // まずは画面の中央付近に見えている面へ置いて大きさを見せる（タッチ端末ではホバーが無いため）
+    raycaster.setFromCamera(new THREE.Vector2(0, -0.05), camera);
+    view.root.updateMatrixWorld(true);
+    const targets = Object.values(view.meshes).filter((m) => m.name !== 'laces');
+    const hit = raycaster.intersectObjects(targets, false)[0];
+    if (hit && hit.face) {
+      const local = view.root.worldToLocal(hit.point.clone());
+      const n = hit.face.normal.clone();
+      if (n.dot(raycaster.ray.direction) > 0) n.negate();
+      ghost.current = {
+        pick: { part: hit.object.userData.partId, decalId: null, position: [round(local.x), round(local.y), round(local.z)], normal: [round(n.x), round(n.y), round(n.z)] },
+        dirty: true,
+      };
+    }
+    invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, draftKey, props.processFx]);
+  useFrame(() => {
+    const g = ghost.current;
+    if (!g.dirty) return;
+    g.dirty = false;
+    view.setGhost(draft && g.pick?.part ? { ...draft, part: g.pick.part, position: g.pick.position, normal: g.pick.normal } : null);
+  });
+  const moveGhost = (p: PickInfo | null) => {
+    if (!draft || !props.processFx) return;
+    ghost.current = { pick: p, dirty: true };
+    invalidate();
+  };
 
   // 矢印キー / ボタンでの微調整移動: 接平面上でずらして表面へ投影し直す
   const nudge = props.nudgeRequest;
@@ -159,7 +292,7 @@ function Model(props: SneakerCanvasProps & { controls: React.MutableRefObject<Or
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation();
         if (e.delta > 8 || props.dragMode) return;
-        const p = toPick(e, view.root, !!props.placing, !!props.placing);
+        const p = toPick(e, view.root, !!props.placing || !!props.spray, !!props.placing);
         if (p) props.onPick?.(p);
       }}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
@@ -172,10 +305,14 @@ function Model(props: SneakerCanvasProps & { controls: React.MutableRefObject<Or
         props.onDrag?.(p);
       }}
       onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+        if (draft) moveGhost(toPick(e, view.root, true, true));
         if (!props.dragMode || !dragging.current) return;
         e.stopPropagation();
         const p = toPick(e, view.root, true, true);
         if (p) props.onDrag?.(p);
+      }}
+      onPointerOut={() => {
+        if (draft && ghost.current.pick && !dragging.current) moveGhost(null);
       }}
       onPointerUp={(e: ThreeEvent<PointerEvent>) => {
         if (!dragging.current) return;
@@ -255,10 +392,11 @@ function CameraRig({
 
 export function SneakerCanvas(props: SneakerCanvasProps) {
   const controls = useRef<OrbitControlsImpl | null>(null);
+  const container = useRef<HTMLDivElement>(null);
   const def = getBaseModel(props.design.baseModel);
   const showFps = typeof location !== 'undefined' && location.search.includes('fps');
   return (
-    <div className={'sneaker-canvas ' + (props.className ?? '')} data-testid="viewport">
+    <div ref={container} className={'sneaker-canvas ' + (props.className ?? '')} data-testid="viewport">
       <Canvas
         frameloop="demand"
         dpr={[1, 1.75]}
@@ -271,7 +409,7 @@ export function SneakerCanvas(props: SneakerCanvasProps) {
       >
         <Studio />
         <FrameCounter />
-        <Model {...props} controls={controls} />
+        <Scene {...props} controls={controls} container={container} />
         <OrbitControls
           ref={controls}
           makeDefault

@@ -18,6 +18,9 @@ export interface EditorState {
   selectedDecalId: string | null;
   placing: DecalDraft | null;
   moveMode: boolean;
+  /** スプレーモード: モデルのパーツをタップすると brushColor で塗る */
+  sprayMode: boolean;
+  brushColor: string;
   camera: CameraState | null;
   recentColors: string[];
 
@@ -40,6 +43,10 @@ export interface EditorState {
   removeDecal: (id: string) => void;
   moveDecalZ: (id: string, dir: 'up' | 'down' | 'top' | 'bottom') => void;
   setMoveMode: (on: boolean) => void;
+  setSprayMode: (on: boolean) => void;
+  setBrushColor: (color: string) => void;
+  /** スプレーモードでタップしたパーツを塗る（1 手） */
+  sprayPart: (p: PartId) => void;
 
   randomize: (seed?: number) => void;
   mirror: (from: 'lateral' | 'medial') => void;
@@ -71,6 +78,8 @@ export const useEditor = create<EditorState>()(
         selectedDecalId: null,
         placing: null,
         moveMode: false,
+        sprayMode: false,
+        brushColor: '#C6FF00',
         camera: null,
         recentColors: [],
 
@@ -132,7 +141,7 @@ export const useEditor = create<EditorState>()(
         },
         setRecentColors: (c) => set({ recentColors: c }),
 
-        startPlacing: (draft) => set({ placing: draft, moveMode: false }),
+        startPlacing: (draft) => set({ placing: draft, moveMode: false, sprayMode: draft ? false : get().sprayMode }),
         placeDecal: (part, position, normal) => {
           const { placing, design } = get();
           if (!placing || !design) return null;
@@ -164,7 +173,35 @@ export const useEditor = create<EditorState>()(
             return { ...d, decals: d.decals.map((x) => ({ ...x, z: zmap.get(x.id)! })) };
           });
         },
-        setMoveMode: (on) => set({ moveMode: on, placing: on ? null : get().placing }),
+        setMoveMode: (on) => set({ moveMode: on, placing: on ? null : get().placing, sprayMode: on ? false : get().sprayMode }),
+        setSprayMode: (on) => {
+          const s = get();
+          set({
+            sprayMode: on,
+            placing: on ? null : s.placing,
+            moveMode: on ? false : s.moveMode,
+            selectedDecalId: on ? null : s.selectedDecalId,
+          });
+        },
+        setBrushColor: (color) => {
+          const c = normalizeHex(color);
+          if (c) set({ brushColor: c });
+        },
+        sprayPart: (p) => {
+          const { brushColor, design } = get();
+          if (!design) return;
+          endBurst();
+          set({ selectedPart: p });
+          if (design.parts[p].color !== brushColor || design.parts[p].pattern) {
+            patchPart(p, (s) => {
+              const { pattern: _omit, ...rest } = s;
+              void _omit;
+              return { ...rest, color: brushColor };
+            });
+          }
+          get().pushRecentColor(brushColor);
+          endBurst();
+        },
 
         randomize: (seed) => {
           endBurst();
