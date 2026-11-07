@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { CameraState, Decal, PartId, SneakerDesign, Vec3 } from '../../models/types';
-import { getBaseModel } from '../../models';
+import { getBaseModel, modelOf } from '../../models';
 import type { ViewPreset } from '../../models/baseModel';
 import { SneakerView, addStageLights, type DecalPreview, type FxStats, type PaintOrigin } from '../three/SneakerView';
 import { DecalGizmo, type DecalTransformPatch, type GizmoScreenPoints } from './DecalGizmo';
@@ -147,7 +147,8 @@ type SceneProps = SneakerCanvasProps & {
 /** 3D シーン: 作品のビュー（SneakerView）と、選択中デカールのハンドル */
 function Scene(props: SceneProps) {
   const { invalidate } = useThree();
-  const def = getBaseModel(props.design.baseModel);
+  // 形の選択が変わると別のジオメトリになるので、ビューごと作り直す
+  const def = modelOf(props.design);
   const view = useMemo(() => new SneakerView(def, () => invalidate()), [def, invalidate]);
   useEffect(() => () => view.dispose(), [view]);
   const gizmoDebug = useRef<(() => GizmoScreenPoints | null) | null>(null);

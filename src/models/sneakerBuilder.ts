@@ -7,8 +7,9 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { BaseModelId, PartId, Vec3 } from './types';
+import type { BaseModelId, PartId, ShapeOptions, Vec3 } from './types';
 import type { BaseModelDef, PartGeometries } from './baseModel';
+import { shapeValue } from './shape';
 
 export interface SneakerParams {
   length: number; // 全長
@@ -404,8 +405,11 @@ function stretchedSole(
   return g;
 }
 
-function buildTongue(shape: Shape): THREE.BufferGeometry {
+const TONGUE_END: Record<NonNullable<ShapeOptions['tongue']>, number> = { short: 0.1, standard: 0, long: -0.11 };
+
+function buildTongue(shape: Shape, length: NonNullable<ShapeOptions['tongue']> = 'standard'): THREE.BufferGeometry {
   const p = shape.p;
+  const end = (shape.runner ? -0.72 : -0.7) + TONGUE_END[length];
   const throatY = (x: number) => {
     if (x > 0.55) return p.throatHeight - (x - 0.55) * 0.6;
     const t = (0.55 - x) / 1.11;
@@ -413,7 +417,7 @@ function buildTongue(shape: Shape): THREE.BufferGeometry {
     return p.collarHeight + (-0.56 - x) * (shape.runner ? 0.9 : 2.2);
   };
   const tp = (t: number, w: number) => {
-    const x = lerp(0.68, shape.runner ? -0.72 : -0.7, t);
+    const x = lerp(0.68, end, t);
     const halfW = lerp(0.2, 0.3, smooth(0, 0.35, t)) * (1 - 0.12 * smooth(0.85, 1, t));
     const z = w * halfW;
     const y = throatY(x) + 0.04 - 1.3 * z * z;
@@ -455,13 +459,12 @@ function buildTongue(shape: Shape): THREE.BufferGeometry {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   fixWinding(g);
-  g.userData.uvSize = [0.55, 1.6];
+  g.userData.uvSize = [0.55, 1.6 - 0.6 * TONGUE_END[length]];
   return g;
 }
 
 /** かかと上端のプルタブ。履き口うしろの曲面から上へ伸ばした角丸の帯 */
-function buildPullTab(shape: Shape, skin: [number, number]): THREE.BufferGeometry {
-  const len = shape.p.pullTab ?? 0;
+function buildPullTab(shape: Shape, skin: [number, number], len: number): THREE.BufferGeometry {
   const hw = 0.05; // s 方向の半幅（かかと中心 s=0.5 から）
   const h0 = 0.72;
   const nu = 8;
@@ -523,10 +526,18 @@ function buildPullTab(shape: Shape, skin: [number, number]): THREE.BufferGeometr
 
 const EYELET_T = [0.12, 0.25, 0.39, 0.53, 0.67, 0.81, 0.95];
 
-function eyeletPoints(shape: Shape) {
+/** ハトメの位置（甲の縁に沿った 0..1）。7 個は従来の位置、それ以外は同じ範囲に等間隔 */
+export function eyeletTs(count: number): number[] {
+  if (count === EYELET_T.length) return EYELET_T;
+  const a = EYELET_T[0];
+  const b = EYELET_T[EYELET_T.length - 1];
+  return Array.from({ length: count }, (_, i) => a + ((b - a) * i) / (count - 1));
+}
+
+function eyeletPoints(shape: Shape, count = 7) {
   const lat: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
   const med: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
-  for (const t of EYELET_T) {
+  for (const t of eyeletTs(count)) {
     for (const [arr, s] of [
       [lat, t * 0.25],
       [med, 1 - t * 0.25],
@@ -538,7 +549,7 @@ function eyeletPoints(shape: Shape) {
   return { lat, med };
 }
 
-function buildEyestay(shape: Shape, skin: [number, number]): THREE.BufferGeometry {
+function buildEyestay(shape: Shape, skin: [number, number], eyelets: number): THREE.BufferGeometry {
   const lo = () => 0.86;
   const hi = () => 1;
   const strip = surface(
@@ -551,7 +562,7 @@ function buildEyestay(shape: Shape, skin: [number, number]): THREE.BufferGeometr
     false,
     skin,
   );
-  const { lat, med } = eyeletPoints(shape);
+  const { lat, med } = eyeletPoints(shape, eyelets);
   const rings: THREE.BufferGeometry[] = [];
   const zAxis = V(0, 0, 1);
   for (const e of [...lat, ...med]) {
@@ -569,28 +580,51 @@ function buildEyestay(shape: Shape, skin: [number, number]): THREE.BufferGeometr
   return g;
 }
 
-function buildLaces(shape: Shape): THREE.BufferGeometry {
-  const { lat, med } = eyeletPoints(shape);
+export const LACE_RADIUS: Record<NonNullable<ShapeOptions['laceWidth']>, number> = { thin: 0.014, standard: 0.021, thick: 0.03 };
+
+interface LaceOptions {
+  eyelets: number;
+  radius: number;
+  style: NonNullable<ShapeOptions['laceStyle']>;
+  tie: NonNullable<ShapeOptions['laceTie']>;
+}
+
+function buildLaces(shape: Shape, o: LaceOptions): THREE.BufferGeometry {
+  const { lat, med } = eyeletPoints(shape, o.eyelets);
   const up = V(0, 1, 0);
   const tubes: THREE.BufferGeometry[] = [];
-  const R = 0.021;
+  const R = o.radius;
+  // 太いひもほど甲から浮かせる（ひも同士・アッパーへのめり込みを防ぐ）
+  const rise = Math.max(0, R - 0.021);
   const tube = (pts: THREE.Vector3[], seg = 16) =>
     tubes.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), seg, R, 6, false));
   const over = (A: THREE.Vector3, B: THREE.Vector3, lift: number) => {
     const mid = A.clone().add(B).multiplyScalar(0.5);
-    mid.y = Math.max(A.y, B.y) + 0.06 + lift;
+    mid.y = Math.max(A.y, B.y) + 0.06 + lift + rise;
     mid.z = 0;
-    const a1 = A.clone().lerp(mid, 0.3).addScaledVector(up, 0.035 + lift * 0.5);
-    const b1 = B.clone().lerp(mid, 0.3).addScaledVector(up, 0.035 + lift * 0.5);
+    const a1 = A.clone().lerp(mid, 0.3).addScaledVector(up, 0.035 + lift * 0.5 + rise);
+    const b1 = B.clone().lerp(mid, 0.3).addScaledVector(up, 0.035 + lift * 0.5 + rise);
     tube([A, a1, mid, b1, B]);
   };
-  over(lat[0].p, med[0].p, 0);
-  for (let i = 0; i < lat.length - 1; i++) {
-    over(lat[i].p, med[i + 1].p, 0);
-    over(med[i].p, lat[i + 1].p, 0.022);
+  const last = lat.length - 1;
+  if (o.style === 'bar') {
+    // ストレート（はしご）: 各段を横 1 本でつなぐ
+    for (let i = 0; i <= last; i++) over(lat[i].p, med[i].p, 0);
+  } else {
+    over(lat[0].p, med[0].p, 0);
+    for (let i = 0; i < last; i++) {
+      over(lat[i].p, med[i + 1].p, 0);
+      over(med[i].p, lat[i + 1].p, 0.022 + rise);
+    }
+  }
+  if (o.tie === 'tucked') {
+    // 結ばない: 最上段を横につないで端は中へしまう
+    if (o.style !== 'bar') over(lat[last].p, med[last].p, 0.044 + rise);
+    const g = mergeGeometries(tubes)!;
+    g.userData.uvSize = [3, 0.15];
+    return g;
   }
   // 蝶結び
-  const last = lat.length - 1;
   const K = lat[last].p.clone().add(med[last].p).multiplyScalar(0.5);
   K.y += 0.1;
   K.x -= 0.02;
@@ -606,7 +640,24 @@ function buildLaces(shape: Shape): THREE.BufferGeometry {
   return g;
 }
 
-export function buildSneaker(params: SneakerParams): PartGeometries {
+/** トゥキャップの帯: 中心からの幅（s）と、上端の高さ h（k = 中心からの距離 / 幅） */
+const TOE_CAP: Record<NonNullable<ShapeOptions['toeCap']>, { w: number; hi: (k: number) => number }> = {
+  standard: { w: 0.15, hi: (k) => 0.6 * Math.max(0, 1 - k * k) ** 0.55 },
+  short: { w: 0.12, hi: (k) => 0.4 * Math.max(0, 1 - k * k) ** 0.55 },
+  long: { w: 0.19, hi: (k) => 0.74 * Math.max(0, 1 - k * k) ** 0.6 },
+  // ストレート: 上端がほぼ水平に回り込む（両端だけ丸める）
+  straight: { w: 0.17, hi: (k) => 0.42 * Math.max(0, 1 - k ** 8) ** 0.35 },
+};
+
+const HEEL_COUNTER: Record<NonNullable<ShapeOptions['heelCounter']>, { w: number; h: number }> = {
+  low: { w: 0.15, h: 0.3 },
+  standard: { w: 0.17, h: 0.46 },
+  high: { w: 0.2, h: 0.68 },
+};
+
+const PULL_TAB: Record<'short' | 'long', number> = { short: 0.12, long: 0.25 };
+
+export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}): PartGeometries {
   const shape = createSneakerShape(params);
   const one = () => 1;
   const zero = () => 0;
@@ -662,7 +713,8 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
     return g;
   })();
 
-  const toeW = 0.15;
+  const toeCap = TOE_CAP[shapeValue(options, 'toeCap')];
+  const toeW = toeCap.w;
   const toe = surface(
     shape,
     [
@@ -670,7 +722,7 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
         s0: -toeW,
         s1: toeW,
         lo: zero,
-        hi: (s) => 0.6 * Math.max(0, 1 - (dist(s, 0) / toeW) ** 2) ** 0.55 + 0.002,
+        hi: (s) => toeCap.hi(dist(s, 0) / toeW) + 0.002,
         nu: 44,
         nv: 14,
       },
@@ -680,7 +732,8 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
     skin,
   );
 
-  const heelW = 0.17;
+  const counter = HEEL_COUNTER[shapeValue(options, 'heelCounter')];
+  const heelW = counter.w;
   const heelOverlay = surface(
     shape,
     [
@@ -688,7 +741,7 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
         s0: 0.5 - heelW,
         s1: 0.5 + heelW,
         lo: zero,
-        hi: (s) => 0.06 + 0.46 * Math.max(0, 1 - (dist(s, 0.5) / heelW) ** 2) ** 0.7,
+        hi: (s) => 0.06 + counter.h * Math.max(0, 1 - (dist(s, 0.5) / heelW) ** 2) ** 0.7,
         nu: 44,
         nv: 14,
       },
@@ -698,27 +751,38 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
     skin,
   );
 
-  // サイドパネル: 角を落とした六角形のプレート（オリジナル形状）
+  // サイドパネル: 角を落とした六角形のプレートなど（すべてオリジナル形状）
+  const panelKind = shapeValue(options, 'sidePanel');
   const panelBand = (s0: number, s1: number): Band => {
-    const cut = (s: number) => {
-      const t = clamp(Math.abs(s - s0) / Math.abs(s1 - s0), 0, 1);
-      const e = Math.min(t, 1 - t);
-      return Math.max(0, 0.16 - e) * 1.5;
-    };
-    return {
-      s0,
-      s1,
-      lo: (s) => 0.2 + cut(s) * 0.5,
-      hi: (s) => 0.6 - cut(s) + 0.002,
-      nu: 36,
-      nv: 10,
-    };
+    const tOf = (s: number) => clamp(Math.abs(s - s0) / Math.abs(s1 - s0), 0, 1);
+    if (panelKind === 'oval') {
+      const r = (s: number) => Math.sqrt(Math.max(0, 1 - (2 * tOf(s) - 1) ** 2));
+      return { s0, s1, lo: (s) => 0.4 - 0.19 * r(s), hi: (s) => 0.4 + 0.19 * r(s) + 0.002, nu: 36, nv: 10 };
+    }
+    if (panelKind === 'diamond') {
+      const r = (s: number) => 1 - Math.abs(2 * tOf(s) - 1);
+      return { s0, s1, lo: (s) => 0.41 - 0.23 * r(s), hi: (s) => 0.41 + 0.23 * r(s) + 0.002, nu: 36, nv: 10 };
+    }
+    if (panelKind === 'saddle') {
+      // サドル: 土踏まずの上を靴底から甲の縁の手前まで覆う帯（上の角を丸める）
+      const corner = (s: number) => Math.max(0, 0.12 - Math.min(tOf(s), 1 - tOf(s))) ** 2 * 9;
+      return { s0, s1, lo: zero, hi: (s) => 0.82 - corner(s), nu: 36, nv: 10 };
+    }
+    const cut = (s: number) => Math.max(0, 0.16 - Math.min(tOf(s), 1 - tOf(s))) * 1.5;
+    return { s0, s1, lo: (s) => 0.2 + cut(s) * 0.5, hi: (s) => 0.6 - cut(s) + 0.002, nu: 36, nv: 10 };
   };
-  const sidePanel = surface(shape, [panelBand(0.15, 0.335), panelBand(0.85, 0.665)], 0.018, false, skin);
+  const [pa, pb] = panelKind === 'saddle' ? [0.14, 0.33] : [0.15, 0.335];
+  const sidePanel = surface(shape, [panelBand(pa, pb), panelBand(1 - pa, 1 - pb)], 0.018, false, skin);
 
-  const eyestay = buildEyestay(shape, skin);
-  const tongue = buildTongue(shape);
-  const laces = buildLaces(shape);
+  const eyelets = Number(shapeValue(options, 'eyelets'));
+  const eyestay = buildEyestay(shape, skin, eyelets);
+  const tongue = buildTongue(shape, shapeValue(options, 'tongue'));
+  const laces = buildLaces(shape, {
+    eyelets,
+    radius: LACE_RADIUS[shapeValue(options, 'laceWidth')],
+    style: shapeValue(options, 'laceStyle'),
+    tie: shapeValue(options, 'laceTie'),
+  });
   const p = shape.p;
   const midsole = shape.runner
     ? stretchedSole(shape, 0.045, p.outsoleThickness - 0.015, shape.midsoleTop, 0.06, 3)
@@ -726,9 +790,11 @@ export function buildSneaker(params: SneakerParams): PartGeometries {
   const outsole = shape.runner
     ? stretchedSole(shape, 0.055, 0, () => p.outsoleThickness, 0.02, 1)
     : sole(shape, 0.06, 0, p.outsoleThickness, 0.02);
+  const tabOpt = shapeValue(options, 'pullTab');
+  const tabLen = tabOpt === 'auto' ? p.pullTab ?? 0 : tabOpt === 'none' ? 0 : PULL_TAB[tabOpt];
   let heel = heelOverlay;
-  if (p.pullTab) {
-    heel = mergeGeometries([heelOverlay, buildPullTab(shape, skin)])!;
+  if (tabLen > 0) {
+    heel = mergeGeometries([heelOverlay, buildPullTab(shape, skin, tabLen)])!;
     heel.userData.uvSize = heelOverlay.userData.uvSize;
     heel.userData.uv1Size = skin;
   }
@@ -791,6 +857,7 @@ export function defineSneaker(
   const at = (x: number, dy: number, z: number): Vec3 => [x, Math.round((ty + dy) * 100) / 100, z];
   return {
     id,
+    key: id,
     label,
     description,
     params: { ...params },

@@ -2,8 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { useEditor, endBurst } from '../../store/editorStore';
 import { useApp } from '../../store/appStore';
 import type { MaterialId, PartId, PatternType } from '../../models/types';
-import { MATERIAL_IDS, MATERIAL_LABELS, PART_IDS, PART_LABELS, PATTERN_LABELS, PATTERN_TYPES } from '../../models/types';
+import {
+  MATERIAL_IDS,
+  MATERIAL_LABELS,
+  PART_IDS,
+  PART_LABELS,
+  PATTERN_DIRECTION_LABELS,
+  PATTERN_DIRECTIONS,
+  PATTERN_LABELS,
+  PATTERN_SCALE_MAX,
+  PATTERN_SCALE_MIN,
+  PATTERN_TYPES,
+} from '../../models/types';
 import { normalizeHex } from '../../models/design';
+import { PART_SHAPE_KEYS, SHAPE_OPTIONS, shapeValue } from '../../models/shape';
 import { Icon } from '../../ui/Icon';
 
 export const SWATCHES = [
@@ -181,12 +193,22 @@ const MAT_PREVIEW: Record<MaterialId, string> = {
   mesh: 'radial-gradient(circle, #2a2a30 30%, #9a9aa0 32%) 0 0/8px 8px, #9a9aa0',
   canvas: 'repeating-linear-gradient(0deg, #8f8f95 0 2px, #7c7c82 2px 3px), #8a8a90',
   patent: 'linear-gradient(135deg, #fff 0, #9a9aa0 30%, #3a3a40 60%, #d0d0d6 100%)',
+  knit: 'repeating-linear-gradient(60deg, #0000 0 3px, #6e6e74 3px 5px), repeating-linear-gradient(-60deg, #0000 0 3px, #6e6e74 3px 5px), #8f8f95',
+  metallic: 'repeating-linear-gradient(0deg, #fff1 0 1px, #0000 1px 3px), linear-gradient(160deg, #e8e8ee 0, #7c7c84 35%, #f4f4f8 55%, #5c5c64 100%)',
+  rubber: 'radial-gradient(circle, #6a6a70 35%, #0000 40%) 0 0/5px 5px, #7c7c82',
 };
+
+function finishLabel(f: number) {
+  if (Math.abs(f) < 0.05) return '素材なり';
+  return f < 0 ? `マット ${Math.round(-f * 100)}%` : `光沢 ${Math.round(f * 100)}%`;
+}
 
 export function MaterialPanel() {
   const { part, style } = usePart();
   const setMat = useEditor((s) => s.setMaterial);
+  const setFinish = useEditor((s) => s.setFinish);
   if (!style) return null;
+  const finish = style.finish ?? 0;
   return (
     <div className="panel-body">
       <PanelHead part={part} />
@@ -198,7 +220,26 @@ export function MaterialPanel() {
           </button>
         ))}
       </div>
-      <p className="muted small">PBR マテリアル（粗さ・光沢・ノーマルマップ）。回して光の当たり方を確認できます。</p>
+      <label className="slider wide-out">
+        <span>ツヤ</span>
+        <input
+          type="range"
+          min={-1}
+          max={1}
+          step={0.05}
+          value={finish}
+          onChange={(e) => setFinish(part, +e.target.value)}
+          aria-label="ツヤ"
+          data-testid="finish"
+        />
+        <output>{finishLabel(finish)}</output>
+      </label>
+      <div className="row gap">
+        <button className="btn ghost" disabled={finish === 0} onClick={() => (endBurst(), setFinish(part, 0))}>
+          ツヤを素材なりに戻す
+        </button>
+      </div>
+      <p className="muted small">PBR マテリアル（粗さ・光沢・ノーマルマップ）。ツヤを左へ動かすとマット、右へ動かすと光沢が出ます。回して光の当たり方を確認できます。</p>
     </div>
   );
 }
@@ -208,15 +249,22 @@ const PATTERN_PREVIEW: Record<PatternType, string> = {
   camo: 'radial-gradient(circle at 20% 30%, #3F4A2A 0 22%, #0000 23%), radial-gradient(circle at 70% 60%, #1C1F14 0 25%, #0000 26%), radial-gradient(circle at 60% 10%, #7A7F55 0 18%, #0000 19%), #5B6340',
   check: 'conic-gradient(#0E0E10 25%, #F2F2EE 0 50%, #0E0E10 0 75%, #F2F2EE 0) 0 0/16px 16px',
   dot: 'radial-gradient(circle, #0E0E10 28%, #0000 30%) 0 0/10px 10px, #F2F2EE',
+  stripe: 'repeating-linear-gradient(0deg, #F2F2EE 0 5px, #0E0E10 5px 10px)',
+  splatter:
+    'radial-gradient(circle at 22% 30%, #0E0E10 0 9%, #0000 10%), radial-gradient(circle at 70% 62%, #C6FF00 0 11%, #0000 12%), radial-gradient(circle at 48% 80%, #0E0E10 0 4%, #0000 5%), radial-gradient(circle at 84% 22%, #0E0E10 0 3%, #0000 4%), radial-gradient(circle at 34% 58%, #C6FF00 0 3%, #0000 4%), #F2F2EE',
+  marble: 'linear-gradient(115deg, #0000 0 40%, #2A2A30 42%, #0000 45%), linear-gradient(60deg, #0000 0 62%, #B8B8BE 64%, #0000 68%), linear-gradient(160deg, #0000 0 22%, #6B6B73 24%, #0000 26%), #E6E4DE',
 };
 
 export function PatternPanel() {
   const { part, style } = usePart();
   const setPattern = useEditor((s) => s.setPattern);
   const setPatternColor = useEditor((s) => s.setPatternColor);
+  const setScale = useEditor((s) => s.setPatternScale);
+  const setDirection = useEditor((s) => s.setPatternDirection);
   const push = useEditor((s) => s.pushRecentColor);
   if (!style) return null;
   const pat = style.pattern;
+  const scale = pat?.scale ?? 1;
   return (
     <div className="panel-body">
       <PanelHead part={part} />
@@ -232,6 +280,37 @@ export function PatternPanel() {
           </button>
         ))}
       </div>
+      {pat && pat.type !== 'gradient' && (
+        <label className="slider">
+          <span>大きさ</span>
+          <input
+            type="range"
+            min={PATTERN_SCALE_MIN}
+            max={PATTERN_SCALE_MAX}
+            step={0.05}
+            value={scale}
+            onChange={(e) => setScale(part, +e.target.value)}
+            aria-label="柄の大きさ"
+            data-testid="pattern-scale"
+          />
+          <output>{scale.toFixed(2)}x</output>
+        </label>
+      )}
+      {pat?.type === 'stripe' && (
+        <>
+          <div className="label">ストライプの向き</div>
+          <div className="seg" role="radiogroup" aria-label="ストライプの向き">
+            {PATTERN_DIRECTIONS.map((d) => {
+              const on = (pat.direction ?? 'h') === d;
+              return (
+                <button key={d} role="radio" aria-checked={on} className={on ? 'active' : ''} onClick={() => setDirection(part, d)} data-direction={d}>
+                  {PATTERN_DIRECTION_LABELS[d]}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
       {pat && (
         <>
           <div className="label">柄の色</div>
@@ -271,4 +350,74 @@ export function useHighlight(): PartId | null {
     return () => clearTimeout(timer.current);
   }, [flashPart]);
   return on;
+}
+
+/** パーツの形（トゥキャップの大きさ・サイドパネルの形・靴ひもの太さなど） */
+export function ShapePanel() {
+  const part = useEditor((s) => s.selectedPart);
+  const shape = useEditor((s) => s.design?.shape);
+  const setShape = useEditor((s) => s.setShape);
+  const resetShape = useEditor((s) => s.resetShape);
+  const select = useEditor((s) => s.selectPart);
+  const flash = useApp((s) => s.flash);
+  const keys = PART_SHAPE_KEYS[part];
+  const shaped = PART_IDS.filter((id) => PART_SHAPE_KEYS[id].length > 0);
+  const changed = keys.filter((k) => shapeValue(shape, k) !== SHAPE_OPTIONS[k].default);
+  return (
+    <div className="panel-body">
+      <PanelHead part={part} />
+      {keys.length === 0 ? (
+        <>
+          <p className="muted small">このパーツは形を変えられません。全体の形は「型」で選べます。形を変えられるパーツ:</p>
+          <div className="row gap wrap">
+            {shaped.map((id) => (
+              <button
+                key={id}
+                className="chip"
+                onClick={() => {
+                  select(id);
+                  flash(id);
+                }}
+              >
+                {PART_LABELS[id]}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {keys.map((k) => {
+            const def = SHAPE_OPTIONS[k];
+            const cur = shapeValue(shape, k);
+            return (
+              <div key={k} className="shape-option">
+                <div className="label">{def.label}</div>
+                <div className="seg wrap" role="radiogroup" aria-label={def.label}>
+                  {def.choices.map((c) => (
+                    <button
+                      key={c.value}
+                      role="radio"
+                      aria-checked={cur === c.value}
+                      className={cur === c.value ? 'active' : ''}
+                      data-shape={k}
+                      data-value={c.value}
+                      onClick={() => setShape(k, c.value as never)}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <div className="row gap">
+            <button className="btn ghost" disabled={!changed.length} onClick={() => resetShape(keys)}>
+              標準の形に戻す
+            </button>
+          </div>
+          <p className="muted small">形を変えても色・素材・デカールはそのまま引き継ぎます（元に戻すで戻せます）。</p>
+        </>
+      )}
+    </div>
+  );
 }

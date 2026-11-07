@@ -109,23 +109,47 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
 
     // ---- [3] 10 パーツすべてに色・素材・柄 ----
     const parts = ['upper', 'toe', 'heel', 'eyestay', 'tongue', 'lining', 'sidePanel', 'midsole', 'outsole', 'laces'];
-    const materials = ['leather', 'suede', 'mesh', 'canvas', 'patent'];
-    const patterns = ['gradient', 'camo', 'check', 'dot'];
+    const materials = ['leather', 'suede', 'mesh', 'canvas', 'patent', 'knit', 'metallic', 'rubber'];
+    const patterns = ['gradient', 'camo', 'check', 'dot', 'stripe', 'splatter', 'marble'];
     for (let i = 0; i < parts.length; i++) {
       await page.locator(`.side.left [data-part=${parts[i]}]`).click();
       await page.locator('[data-tab=color]').click();
       await page.locator('.swatch-grid .swatch-btn').nth(6 + (i % 10)).click();
       await page.locator('[data-tab=material]').click();
-      await page.locator(`[data-material=${materials[i % 5]}]`).click();
+      await page.locator(`[data-material=${materials[i % materials.length]}]`).click();
       await page.locator('[data-tab=pattern]').click();
-      await page.locator(`[data-pattern=${patterns[i % 4]}]`).click();
+      await page.locator(`[data-pattern=${patterns[i % patterns.length]}]`).click();
     }
     const d1 = await store(page).design();
     for (let i = 0; i < parts.length; i++) {
-      expect(d1.parts[parts[i]].material).toBe(materials[i % 5]);
-      expect(d1.parts[parts[i]].pattern.type).toBe(patterns[i % 4]);
+      expect(d1.parts[parts[i]].material).toBe(materials[i % materials.length]);
+      expect(d1.parts[parts[i]].pattern.type).toBe(patterns[i % patterns.length]);
     }
     expect(new Set(parts.map((p) => d1.parts[p].color)).size).toBeGreaterThan(1);
+
+    // ---- パーツの形・ツヤ・柄の大きさ ----
+    await page.locator('.side.left [data-part=sidePanel]').click();
+    await page.locator('[data-tab=shape]').click();
+    await page.locator('[data-shape=sidePanel][data-value=saddle]').click();
+    await page.locator('.side.left [data-part=laces]').click();
+    await page.locator('[data-shape=laceWidth][data-value=thick]').click();
+    await page.locator('[data-shape=eyelets][data-value="5"]').click();
+    await page.locator('.side.left [data-part=toe]').click();
+    await page.locator('[data-shape=toeCap][data-value=long]').click();
+    await expect.poll(async () => (await store(page).design()).shape).toEqual({ toeCap: 'long', sidePanel: 'saddle', eyelets: '5', laceWidth: 'thick' });
+    await page.screenshot({ path: `${OUT}/shape-options.png` });
+    await page.locator('[data-tab=material]').click();
+    await page.getByTestId('finish').fill('0.6');
+    expect((await store(page).design()).parts.toe.finish).toBe(0.6);
+    await page.locator('[data-tab=pattern]').click();
+    await page.getByTestId('pattern-scale').fill('1.5');
+    expect((await store(page).design()).parts.toe.pattern.scale).toBe(1.5);
+    // 形は元に戻すで戻せる
+    await page.locator('[data-tab=shape]').click();
+    await page.getByRole('button', { name: '標準の形に戻す' }).click();
+    expect((await store(page).design()).shape?.toeCap).toBeUndefined();
+    await page.keyboard.press('Control+z');
+    await expect.poll(async () => (await store(page).design()).shape?.toeCap).toBe('long');
 
     // ---- [4] ロゴ・画像・文字をモデル表面に貼る ----
     await page.locator('[data-tab=decal]').click();
@@ -403,7 +427,7 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
       await waitReady(page);
       if (vp.mobile) {
         // 下部タブ → ボトムシート
-        for (const tab of ['model', 'color', 'material', 'pattern', 'decal', 'parts']) {
+        for (const tab of ['model', 'color', 'material', 'pattern', 'shape', 'decal', 'parts']) {
           await page.locator(`.tabbar [data-tab=${tab}]`).tap();
           await expect(page.locator('.sheet')).toBeVisible();
           const ov = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector('.editor')!.scrollWidth) - window.innerWidth);

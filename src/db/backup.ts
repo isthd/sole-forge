@@ -1,8 +1,18 @@
 import { getDB } from './db';
 import { thumbKey } from './repo';
 import type { Decal, PartId, PartStyle, SneakerDesign } from '../models/types';
-import { CURRENT_SCHEMA_VERSION, MATERIAL_IDS, isBaseModelId, PART_IDS, PATTERN_TYPES } from '../models/types';
+import {
+  CURRENT_SCHEMA_VERSION,
+  MATERIAL_IDS,
+  isBaseModelId,
+  PART_IDS,
+  PATTERN_DIRECTIONS,
+  PATTERN_SCALE_MAX,
+  PATTERN_SCALE_MIN,
+  PATTERN_TYPES,
+} from '../models/types';
 import { DEFAULT_PARTS, HEX_RE, uid } from '../models/design';
+import { normalizeShape } from '../models/shape';
 
 /** JSON バックアップ 1 ファイル。画像は Base64 (data URL) で埋め込む。 */
 export interface BackupFile {
@@ -96,7 +106,12 @@ function sanitizePart(id: PartId, raw: any): PartStyle {
   if (raw?.pattern && PATTERN_TYPES.includes(raw.pattern.type)) {
     const colors = Array.isArray(raw.pattern.colors) ? raw.pattern.colors.filter((c: unknown) => typeof c === 'string' && HEX_RE.test(c)) : [];
     out.pattern = { type: raw.pattern.type, colors: colors.length ? colors : [out.color, '#C6FF00'] };
+    const sc = raw.pattern.scale;
+    if (typeof sc === 'number' && Number.isFinite(sc) && sc !== 1) out.pattern.scale = Math.min(PATTERN_SCALE_MAX, Math.max(PATTERN_SCALE_MIN, sc));
+    if (PATTERN_DIRECTIONS.includes(raw.pattern.direction) && raw.pattern.direction !== 'h') out.pattern.direction = raw.pattern.direction;
   }
+  const f = raw?.finish;
+  if (typeof f === 'number' && Number.isFinite(f) && f !== 0) out.finish = Math.min(1, Math.max(-1, f));
   return out;
 }
 
@@ -139,6 +154,8 @@ function sanitizeDesign(raw: any, i: number): SneakerDesign {
     d.camera = { position: vec(raw.camera.position, [3, 2, 4]), target: vec(raw.camera.target, [0, 1, 0]) };
   }
   if (typeof raw?.thumbnail === 'string') d.thumbnail = raw.thumbnail;
+  const shape = normalizeShape(raw?.shape);
+  if (Object.keys(shape).length) d.shape = shape;
   return d;
 }
 

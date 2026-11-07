@@ -20,10 +20,10 @@ const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 
 
 export type ChangeKind = 'paint' | 'material';
 
-/** パーツの見た目の変化を分類する。素材が変われば material、色・柄だけなら paint、同じなら null */
+/** パーツの見た目の変化を分類する。素材・ツヤが変われば material、色・柄だけなら paint、同じなら null */
 export function classifyChange(prev: PartStyle | undefined, next: PartStyle): ChangeKind | null {
   if (!prev) return null;
-  if (prev.material !== next.material) return 'material';
+  if (prev.material !== next.material || (prev.finish ?? 0) !== (next.finish ?? 0)) return 'material';
   if (prev.color !== next.color) return 'paint';
   if (JSON.stringify(prev.pattern ?? null) !== JSON.stringify(next.pattern ?? null)) return 'paint';
   return null;

@@ -592,7 +592,7 @@ button:disabled {
 }
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   border-top: 1px solid var(--line);
   background: #0b0b0d;
   padding-bottom: env(safe-area-inset-bottom);
@@ -1102,4 +1102,18 @@ button:disabled {
 .panel-body .model-sil {
   aspect-ratio: auto;
   height: 52px;
+}
+
+/* ------- 形タブ / ツヤ ------- */
+.slider.wide-out {
+  grid-template-columns: 48px 1fr 84px;
+}
+.shape-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.shape-option .seg button {
+  min-width: 64px;
 }

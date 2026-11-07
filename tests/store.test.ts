@@ -43,8 +43,8 @@ describe('editor store (zustand + zundo)', () => {
       for (const t of PATTERN_TYPES) s().setPattern(p, t);
       const st = s().design!.parts[p];
       expect(st.color).toBe('#123456');
-      expect(st.material).toBe('patent');
-      expect(st.pattern?.type).toBe('dot');
+      expect(st.material).toBe(MATERIAL_IDS[MATERIAL_IDS.length - 1]);
+      expect(st.pattern?.type).toBe(PATTERN_TYPES[PATTERN_TYPES.length - 1]);
       s().setPattern(p, null);
       expect(s().design!.parts[p].pattern).toBeUndefined();
     }

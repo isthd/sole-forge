@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { CameraState, SneakerDesign } from '../../models/types';
-import { getBaseModel } from '../../models';
+import { modelOf } from '../../models';
 import { SneakerView, addStageLights } from './SneakerView';
 
 let renderer: THREE.WebGLRenderer | null = null;
@@ -45,7 +45,7 @@ export interface RenderOptions {
 
 export async function renderDesignCanvas(design: SneakerDesign, opt: RenderOptions): Promise<HTMLCanvasElement> {
   const r = getRenderer();
-  const def = getBaseModel(design.baseModel);
+  const def = modelOf(design);
   const scene = new THREE.Scene();
   scene.environment = envTex;
   addStageLights(scene);

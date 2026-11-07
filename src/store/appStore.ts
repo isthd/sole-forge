@@ -21,7 +21,7 @@ function defaultProcessFx(): boolean {
 
 export type Route = 'editor' | 'shelf' | 'settings';
 export type ExportScale = 1 | 2 | 4;
-export type EditorTab = 'model' | 'parts' | 'color' | 'material' | 'pattern' | 'decal';
+export type EditorTab = 'model' | 'parts' | 'color' | 'material' | 'pattern' | 'shape' | 'decal';
 
 export interface AppState {
   route: Route;

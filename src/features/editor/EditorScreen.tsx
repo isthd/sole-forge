@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { useEditor, undo, redo, endBurst } from '../../store/editorStore';
 import { useApp, type EditorTab } from '../../store/appStore';
 import { SneakerCanvas } from '../../renderers/r3f/SneakerCanvas';
-import { ColorPanel, MaterialPanel, PartList, PatternPanel, useHighlight } from './panels';
+import { ColorPanel, MaterialPanel, PartList, PatternPanel, ShapePanel, useHighlight } from './panels';
 import { DecalPanel } from './DecalPanel';
 import { ModelPanel } from './ModelPanel';
 import { ExportDialog } from './ExportDialog';
@@ -18,6 +18,7 @@ const TABS: { id: EditorTab; label: string; icon: Parameters<typeof Icon>[0]['na
   { id: 'color', label: '色', icon: 'palette' },
   { id: 'material', label: '素材', icon: 'cube' },
   { id: 'pattern', label: '柄', icon: 'grid' },
+  { id: 'shape', label: '形', icon: 'shape' },
   { id: 'decal', label: 'デカール', icon: 'sticker' },
 ];
 
@@ -64,6 +65,8 @@ export function EditorScreen() {
       <MaterialPanel />
     ) : t === 'pattern' ? (
       <PatternPanel />
+    ) : t === 'shape' ? (
+      <ShapePanel />
     ) : (
       <DecalPanel />
     );

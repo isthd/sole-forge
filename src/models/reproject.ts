@@ -12,7 +12,7 @@ const round = (v: number) => Math.round(v * 10000) / 10000;
 
 const meshCache = new Map<string, THREE.Mesh[]>();
 function targetsOf(def: BaseModelDef): THREE.Mesh[] {
-  let list = meshCache.get(def.id);
+  let list = meshCache.get(def.key);
   if (!list) {
     const geos = getGeometries(def);
     list = PART_IDS.filter((id) => id !== 'laces').map((id) => {
@@ -21,7 +21,9 @@ function targetsOf(def: BaseModelDef): THREE.Mesh[] {
       m.updateMatrixWorld(true);
       return m;
     });
-    meshCache.set(def.id, list);
+    meshCache.set(def.key, list);
+    // 形の組み合わせは数が多いので、直近のものだけ残す
+    if (meshCache.size > 16) meshCache.delete(meshCache.keys().next().value!);
   }
   return list;
 }
@@ -42,7 +44,7 @@ function cast(targets: THREE.Mesh[], p: THREE.Vector3, n: THREE.Vector3) {
 }
 
 export function reprojectDecals(decals: Decal[], from: BaseModelDef, to: BaseModelDef): Decal[] {
-  if (from.id === to.id) return decals;
+  if (from.key === to.key) return decals;
   const targets = targetsOf(to);
   return decals.map((d) => {
     const p = new THREE.Vector3(d.position[0], mapHeight(d.position[1], from, to), d.position[2]);

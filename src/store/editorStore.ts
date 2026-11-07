@@ -1,9 +1,23 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
-import type { BaseModelId, CameraState, Decal, MaterialId, PartId, PartStyle, PatternType, SneakerDesign } from '../models/types';
+import type {
+  BaseModelId,
+  CameraState,
+  Decal,
+  MaterialId,
+  PartId,
+  PartStyle,
+  PatternDirection,
+  PatternType,
+  ShapeKey,
+  ShapeOptions,
+  SneakerDesign,
+} from '../models/types';
+import { PATTERN_SCALE_MAX, PATTERN_SCALE_MIN } from '../models/types';
 import { cloneDesign, mirrorDecals, normalizeHex, normalizeZ, uid } from '../models/design';
 import { randomParts } from './random';
-import { getBaseModel } from '../models';
+import { getDesignModel } from '../models';
+import { normalizeShape, shapeKey } from '../models/shape';
 import { reprojectDecals } from '../models/reproject';
 
 export const HISTORY_LIMIT = 100;
@@ -33,6 +47,15 @@ export interface EditorState {
   setMaterial: (p: PartId, m: MaterialId) => void;
   setPattern: (p: PartId, type: PatternType | null, colors?: string[]) => void;
   setPatternColor: (p: PartId, index: number, color: string) => void;
+  /** 柄の大きさ（スライダー。連続操作は 1 手にまとまる） */
+  setPatternScale: (p: PartId, scale: number) => void;
+  setPatternDirection: (p: PartId, dir: PatternDirection) => void;
+  /** ツヤ（-1 マット 〜 1 光沢。スライダー） */
+  setFinish: (p: PartId, finish: number) => void;
+  /** パーツの形を変える（デカールは新しい表面へ載せ直す）。1 手として記録 */
+  setShape: <K extends ShapeKey>(key: K, value: NonNullable<ShapeOptions[K]>) => void;
+  /** 指定した形の項目を標準に戻す（1 手） */
+  resetShape: (keys: ShapeKey[]) => void;
   pushRecentColor: (color: string) => void;
   setRecentColors: (c: string[]) => void;
 
@@ -71,6 +94,18 @@ export const useEditor = create<EditorState>()(
       };
       const patchPart = (p: PartId, fn: (s: PartStyle) => PartStyle) =>
         patchDesign((d) => ({ ...d, parts: { ...d.parts, [p]: fn(d.parts[p]) } }));
+      /** 形を差し替え、デカールを新しい表面へ載せ直す */
+      const applyShape = (raw: ShapeOptions) => {
+        const d = get().design;
+        if (!d) return;
+        const shape = normalizeShape(raw);
+        if (shapeKey(shape) === shapeKey(d.shape)) return;
+        endBurst();
+        const decals = reprojectDecals(d.decals, getDesignModel(d.baseModel, d.shape), getDesignModel(d.baseModel, shape));
+        const next: SneakerDesign = { ...d, decals, shape };
+        if (!Object.keys(shape).length) delete next.shape;
+        set({ design: next });
+      };
 
       return {
         design: null,
@@ -93,7 +128,7 @@ export const useEditor = create<EditorState>()(
           const d = get().design;
           if (!d || d.baseModel === id) return;
           endBurst();
-          const decals = reprojectDecals(d.decals, getBaseModel(d.baseModel), getBaseModel(id));
+          const decals = reprojectDecals(d.decals, getDesignModel(d.baseModel, d.shape), getDesignModel(id, d.shape));
           // 型ごとに高さが違うので、保存していた角度は使わず新しい型の標準の角度に戻す
           set({ design: { ...d, baseModel: id, decals, camera: undefined }, camera: null });
         },
@@ -120,8 +155,13 @@ export const useEditor = create<EditorState>()(
                 ? [s.color, '#3F4A2A', '#7A7F55', '#1C1F14']
                 : type === 'gradient'
                   ? [s.color, '#C6FF00']
-                  : [s.color, '#0E0E10'];
-            return { ...s, pattern: { type, colors: colors ?? s.pattern?.colors ?? def } };
+                  : type === 'splatter'
+                    ? [s.color, '#0E0E10', '#C6FF00']
+                    : type === 'marble'
+                      ? [s.color, '#2A2A30', '#B8B8BE']
+                      : [s.color, '#0E0E10'];
+            // 大きさ・向きは柄の種類を変えても引き継ぐ
+            return { ...s, pattern: { ...s.pattern, type, colors: colors ?? s.pattern?.colors ?? def } };
           });
         },
         setPatternColor: (p, index, color) => {
@@ -133,6 +173,40 @@ export const useEditor = create<EditorState>()(
             colors[index] = c;
             return { ...s, pattern: { ...s.pattern, colors } };
           });
+        },
+        setPatternScale: (p, scale) => {
+          if (!Number.isFinite(scale)) return;
+          const v = Math.round(Math.min(PATTERN_SCALE_MAX, Math.max(PATTERN_SCALE_MIN, scale)) * 100) / 100;
+          patchPart(p, (s) => {
+            if (!s.pattern) return s;
+            const { scale: _old, ...rest } = s.pattern;
+            void _old;
+            return { ...s, pattern: v === 1 ? rest : { ...rest, scale: v } };
+          });
+        },
+        setPatternDirection: (p, dir) => {
+          endBurst();
+          patchPart(p, (s) => {
+            if (!s.pattern) return s;
+            const { direction: _old, ...rest } = s.pattern;
+            void _old;
+            return { ...s, pattern: dir === 'h' ? rest : { ...rest, direction: dir } };
+          });
+        },
+        setFinish: (p, finish) => {
+          if (!Number.isFinite(finish)) return;
+          const v = Math.round(Math.min(1, Math.max(-1, finish)) * 100) / 100;
+          patchPart(p, (s) => {
+            const { finish: _old, ...rest } = s;
+            void _old;
+            return v === 0 ? rest : { ...rest, finish: v };
+          });
+        },
+        setShape: (key, value) => applyShape({ ...get().design?.shape, [key]: value }),
+        resetShape: (keys) => {
+          const cur = { ...get().design?.shape } as Record<string, unknown>;
+          for (const k of keys) delete cur[k];
+          applyShape(cur as ShapeOptions);
         },
         pushRecentColor: (color) => {
           const c = normalizeHex(color);

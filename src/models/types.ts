@@ -11,14 +11,45 @@ export type PartId =
   | 'laces'
   | 'sidePanel';
 
-export type MaterialId = 'leather' | 'suede' | 'mesh' | 'canvas' | 'patent';
-export type PatternType = 'gradient' | 'camo' | 'check' | 'dot';
+export type MaterialId = 'leather' | 'suede' | 'mesh' | 'canvas' | 'patent' | 'knit' | 'metallic' | 'rubber';
+export type PatternType = 'gradient' | 'camo' | 'check' | 'dot' | 'stripe' | 'splatter' | 'marble';
+/** 柄の向き（ストライプ用）。h = 横縞、v = 縦縞、d = 斜め */
+export type PatternDirection = 'h' | 'v' | 'd';
+
+export interface PatternStyle {
+  type: PatternType;
+  colors: string[];
+  /** 柄の大きさの倍率（0.5〜2、省略時 1）。グラデーションには効かない */
+  scale?: number;
+  /** ストライプの向き（省略時 h） */
+  direction?: PatternDirection;
+}
 
 export interface PartStyle {
   color: string; // HEX
   material: MaterialId;
-  pattern?: { type: PatternType; colors: string[] };
+  pattern?: PatternStyle;
+  /** ツヤ（-1 = マット 〜 0 = 素材なり 〜 1 = 光沢、省略時 0） */
+  finish?: number;
 }
+
+/**
+ * パーツの形の選択（作品ごと）。省略した項目は標準の形。
+ * 値を追加したら models/shape.ts の SHAPE_OPTIONS にも足す。
+ */
+export interface ShapeOptions {
+  toeCap?: 'standard' | 'short' | 'long' | 'straight';
+  heelCounter?: 'standard' | 'low' | 'high';
+  /** auto = ベース型の標準（ランナーは有り、ほかは無し） */
+  pullTab?: 'auto' | 'none' | 'short' | 'long';
+  sidePanel?: 'hex' | 'oval' | 'diamond' | 'saddle';
+  tongue?: 'standard' | 'short' | 'long';
+  eyelets?: '7' | '6' | '5';
+  laceWidth?: 'standard' | 'thin' | 'thick';
+  laceStyle?: 'cross' | 'bar';
+  laceTie?: 'bow' | 'tucked';
+}
+export type ShapeKey = keyof ShapeOptions;
 
 export type Vec3 = [number, number, number];
 
@@ -55,6 +86,8 @@ export interface SneakerDesign {
   name: string;
   baseModel: BaseModelId;
   parts: Record<PartId, PartStyle>;
+  /** パーツの形（省略 = すべて標準） */
+  shape?: ShapeOptions;
   decals: Decal[];
   camera?: CameraState; // 最後に見ていた角度
   thumbnail?: string; // 棚表示用 PNG の Blob キー
@@ -91,21 +124,31 @@ export const PART_LABELS: Record<PartId, string> = {
   laces: '靴ひも',
 };
 
-export const MATERIAL_IDS: MaterialId[] = ['leather', 'suede', 'mesh', 'canvas', 'patent'];
+export const MATERIAL_IDS: MaterialId[] = ['leather', 'suede', 'mesh', 'canvas', 'patent', 'knit', 'metallic', 'rubber'];
 export const MATERIAL_LABELS: Record<MaterialId, string> = {
   leather: 'レザー',
   suede: 'スエード',
   mesh: 'メッシュ',
   canvas: 'キャンバス',
   patent: 'パテント',
+  knit: 'ニット',
+  metallic: 'メタリック',
+  rubber: 'ラバー',
 };
 
-export const PATTERN_TYPES: PatternType[] = ['gradient', 'camo', 'check', 'dot'];
+export const PATTERN_TYPES: PatternType[] = ['gradient', 'camo', 'check', 'dot', 'stripe', 'splatter', 'marble'];
 export const PATTERN_LABELS: Record<PatternType, string> = {
   gradient: 'グラデーション',
   camo: '迷彩',
   check: 'チェック',
   dot: 'ドット',
+  stripe: 'ストライプ',
+  splatter: 'スプラッター',
+  marble: 'マーブル',
 };
+export const PATTERN_DIRECTIONS: PatternDirection[] = ['h', 'v', 'd'];
+export const PATTERN_DIRECTION_LABELS: Record<PatternDirection, string> = { h: '横', v: '縦', d: '斜め' };
+export const PATTERN_SCALE_MIN = 0.5;
+export const PATTERN_SCALE_MAX = 2;
 
 export const CURRENT_SCHEMA_VERSION = 1 as const;

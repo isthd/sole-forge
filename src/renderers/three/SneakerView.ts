@@ -14,7 +14,7 @@ import type { BaseModelDef } from '../../models/baseModel';
 import type { Decal, PartId, PartStyle, Vec3 } from '../../models/types';
 import { PART_IDS } from '../../models/types';
 import { buildSneakerMeshes } from './meshes';
-import { MATERIAL_SPECS, PATTERN_TILE, getNormalMap, getPatternTexture, getShadowTexture } from './textures';
+import { MATERIAL_SPECS, PATTERN_TILE, getNormalMap, getPatternTexture, getShadowTexture, surfaceOf } from './textures';
 import { getDecalTexture } from './decalTextures';
 import {
   APPLY_DURATION,
@@ -198,15 +198,16 @@ export class SneakerView {
     // 同じ素材・柄どうしならパーツの境目でシボや柄が途切れず、境界線が出ない
     const skinSize = geo.getAttribute('uv1') ? (geo.userData.uv1Size as [number, number] | undefined) ?? null : null;
     const tileSize = skinSize ?? uvSize;
+    const surf = surfaceOf(style);
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(style.pattern ? '#FFFFFF' : style.color),
-      roughness: spec.roughness,
+      roughness: surf.roughness,
       metalness: spec.metalness,
-      clearcoat: spec.clearcoat ?? 0,
-      clearcoatRoughness: spec.clearcoatRoughness ?? 0,
+      clearcoat: surf.clearcoat,
+      clearcoatRoughness: spec.clearcoatRoughness ?? 0.08,
       sheen: spec.sheen ?? 0,
       sheenRoughness: spec.sheenRoughness ?? 1,
-      envMapIntensity: spec.envMapIntensity,
+      envMapIntensity: surf.envMapIntensity,
       side: this.def.doubleSided.includes(id) ? THREE.DoubleSide : THREE.FrontSide,
     });
     if (spec.sheen) mat.sheenColor = new THREE.Color(style.color).lerp(new THREE.Color('#FFFFFF'), 0.35);
@@ -219,9 +220,9 @@ export class SneakerView {
       mat.normalScale = new THREE.Vector2(spec.normalScale, spec.normalScale);
     }
     if (style.pattern) {
-      const base = getPatternTexture(style.pattern.type, style.pattern.colors);
+      const base = getPatternTexture(style.pattern.type, style.pattern.colors, style.pattern.direction);
       const t = base.clone();
-      const tile = PATTERN_TILE[style.pattern.type];
+      const tile = PATTERN_TILE[style.pattern.type] * (style.pattern.scale ?? 1);
       // グラデーションはパーツごとに下→上で 1 回（従来どおり uv）。タイル柄は共通の座標でつなげる
       if (tile > 0) {
         t.repeat.set(Math.max(1, Math.round(tileSize[0] / tile)), Math.max(1, Math.round(tileSize[1] / tile)));
@@ -374,8 +375,9 @@ export class SneakerView {
     const mat = this.meshes[id].material as THREE.MeshPhysicalMaterial;
     const style = this.styles?.[id];
     if (style) {
-      mat.roughness = MATERIAL_SPECS[style.material].roughness;
-      mat.envMapIntensity = MATERIAL_SPECS[style.material].envMapIntensity;
+      const surf = surfaceOf(style);
+      mat.roughness = surf.roughness;
+      mat.envMapIntensity = surf.envMapIntensity;
     }
   }
 
@@ -697,7 +699,7 @@ export class SneakerView {
       if (pp.dry && style) {
         // 塗りたては艶があり、乾くと素材本来の粗さに戻る
         const mat = this.meshes[id].material as THREE.MeshPhysicalMaterial;
-        const spec = MATERIAL_SPECS[style.material];
+        const spec = surfaceOf(style);
         const t = (now - pp.dry.start) / 1000;
         const dry = t < 0 ? 0 : dryFactor(t, pp.dry.duration);
         const wet = Math.min(WET_ROUGHNESS, spec.roughness);
