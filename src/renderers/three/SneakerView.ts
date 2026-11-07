@@ -14,7 +14,7 @@ import type { BaseModelDef } from '../../models/baseModel';
 import type { Decal, PartId, PartStyle, Vec3 } from '../../models/types';
 import { PART_IDS } from '../../models/types';
 import { buildSneakerMeshes } from './meshes';
-import { MATERIAL_SPECS, PATTERN_TILE, getNormalMap, getPatternTexture, getShadowTexture, surfaceOf } from './textures';
+import { MATERIAL_SPECS, PATTERN_TILE, getContactShadowTexture, getNormalMap, getPatternTexture, getShadowTexture, surfaceOf } from './textures';
 import { getDecalTexture } from './decalTextures';
 import {
   APPLY_DURATION,
@@ -229,6 +229,12 @@ export class SneakerView {
         if (skinSize) t.channel = 1;
       }
       mat.map = t;
+    }
+    const outlines = geo.userData.overlayOutlines as [number, number][][] | undefined;
+    if (outlines) {
+      // 重ねたパーツの縁の影（環境光を弱める）。テクスチャは型ごとに共有し、ここでは clone しない
+      mat.aoMap = getContactShadowTexture(outlines, uvSize);
+      mat.aoMapIntensity = 1;
     }
     return mat;
   }

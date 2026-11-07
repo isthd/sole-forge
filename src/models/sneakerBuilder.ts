@@ -206,7 +206,14 @@ interface Band {
  * skin（アッパー全体の実寸）を渡すと、アッパーと共通の座標 uv1 = (s,h) も付ける。
  * 素材の凹凸（ノーマルマップ）とタイル柄はこの uv1 で貼るので、同じ色・素材ならパーツの境目でシボや柄が途切れない。
  */
-function surface(shape: Shape, bands: Band[], offset: number, inward = false, skin: [number, number] | null = null): THREE.BufferGeometry {
+function surface(
+  shape: Shape,
+  bands: Band[],
+  offset: number,
+  inward = false,
+  skin: [number, number] | null = null,
+  rim = 0,
+): THREE.BufferGeometry {
   const geos: THREE.BufferGeometry[] = [];
   let sizeU = 0;
   let sizeV = 0;
@@ -251,6 +258,7 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false, sk
       }
     }
     void rowLen;
+    if (rim > 0 && !inward) addRolledEdge(b, pos, nor, uv, uv1, idx, rim);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
@@ -280,6 +288,86 @@ function surface(shape: Shape, bands: Band[], offset: number, inward = false, sk
   g.userData.uvSize = [sizeU, sizeV];
   if (skin) g.userData.uv1Size = skin;
   return g;
+}
+
+/**
+ * 浮いて重なるパーツの縁を丸く折り返して、アッパーの表面に沈める（革を重ねて縫い付けたような縁）。
+ * 縁が紙のように薄いと、アッパーと色が違うときにシールを貼ったように見えるため。
+ * r は浮かせた高さ（offset）。縁の外側へ r だけ広げながら 1/4 円で下り、最後は少しアッパーの下へ潜らせる。
+ */
+function addRolledEdge(b: Band, pos: number[], nor: number[], uv: number[], uv1: number[], idx: number[], r: number) {
+  const nv1 = b.nv + 1;
+  const at = (i: number, j: number) => i * nv1 + j;
+  // 帯の外周を一周（重複点は除く）
+  const ring: number[] = [];
+  for (let i = 0; i <= b.nu; i++) ring.push(at(i, 0));
+  for (let j = 1; j <= b.nv; j++) ring.push(at(b.nu, j));
+  for (let i = b.nu - 1; i >= 0; i--) ring.push(at(i, b.nv));
+  for (let j = b.nv - 1; j >= 1; j--) ring.push(at(0, j));
+  const P = (k: number) => V(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]);
+  const loop: number[] = [];
+  for (const k of ring) {
+    if (loop.length && P(loop[loop.length - 1]).distanceToSquared(P(k)) < 1e-12) continue;
+    loop.push(k);
+  }
+  if (loop.length > 1 && P(loop[0]).distanceToSquared(P(loop[loop.length - 1])) < 1e-12) loop.pop();
+  const L = loop.length;
+  if (L < 3) return;
+  const center = P(at(Math.floor(b.nu / 2), Math.floor(b.nv / 2)));
+  // 断面: 0°, 45°, 90°（1/4 円）＋アッパーの下へ潜る 1 段
+  const steps = [0, Math.PI / 4, Math.PI / 2];
+  const tuck = r + 0.004;
+  const rows = steps.length + 1;
+  const base = pos.length / 3;
+  for (let q = 0; q < L; q++) {
+    const k = loop[q];
+    const p = P(k);
+    const n = V(nor[k * 3], nor[k * 3 + 1], nor[k * 3 + 2]);
+    const t = P(loop[(q + 1) % L]).sub(P(loop[(q - 1 + L) % L]));
+    const e = t.cross(n).normalize();
+    if (e.dot(p.clone().sub(center)) < 0) e.negate();
+    const put = (pt: THREE.Vector3, nn: THREE.Vector3) => {
+      pos.push(pt.x, pt.y, pt.z);
+      nor.push(nn.x, nn.y, nn.z);
+      uv.push(uv[k * 2], uv[k * 2 + 1]);
+      uv1.push(uv1[k * 2], uv1[k * 2 + 1]);
+    };
+    for (const phi of steps) {
+      const pt = p.clone().addScaledVector(n, -r * (1 - Math.cos(phi))).addScaledVector(e, r * Math.sin(phi));
+      put(pt, n.clone().multiplyScalar(Math.cos(phi)).addScaledVector(e, Math.sin(phi)).normalize());
+    }
+    put(p.clone().addScaledVector(n, -tuck).addScaledVector(e, r), e);
+  }
+  for (let q = 0; q < L; q++) {
+    const q1 = (q + 1) % L;
+    for (let m = 0; m < rows - 1; m++) {
+      const A = base + q * rows + m;
+      const B = base + q1 * rows + m;
+      const C = B + 1;
+      const D = A + 1;
+      // 向きは 1 枚目の三角形の面法線と頂点法線で決める（周回の向きは帯ごとに違うため）
+      const pa = V(pos[A * 3], pos[A * 3 + 1], pos[A * 3 + 2]);
+      const fn = V(pos[B * 3], pos[B * 3 + 1], pos[B * 3 + 2]).sub(pa).cross(V(pos[D * 3], pos[D * 3 + 1], pos[D * 3 + 2]).sub(pa));
+      const vn = V(nor[A * 3], nor[A * 3 + 1], nor[A * 3 + 2]);
+      if (fn.dot(vn) >= 0) idx.push(A, B, D, B, C, D);
+      else idx.push(A, D, B, B, D, C);
+    }
+  }
+}
+
+/** 帯の輪郭を (s,h) の多角形にする（下の縁を往き、上の縁を戻る） */
+function bandOutline(b: Band): [number, number][] {
+  const out: [number, number][] = [];
+  const n = 48;
+  for (let i = 0; i <= n; i++) {
+    const s = lerp(b.s0, b.s1, i / n);
+    out.push([s, b.lo(s)]);
+  }
+  for (let i = n; i >= 0; i--) {
+    const s = lerp(b.s0, b.s1, i / n);
+    out.push([s, b.hi(s)]);
+  }
+  return out;
 }
 
 /** アッパーの uv はもともと (s,h) なので、そのまま共通座標 uv1 にする */
@@ -671,7 +759,7 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
   const skin = addSkinUV(upper);
 
   const lining = (() => {
-    const inner = surface(shape, [{ s0: 0, s1: 1, lo: () => 0.12, hi: one, nu: 112, nv: 14 }], -0.04, true);
+    const inner = surface(shape, [{ s0: 0, s1: 1, lo: () => 0.12, hi: one, nu: 112, nv: 8 }], -0.04, true);
     // 履き口のパッド（外側の縁から内側の縁まで丸くつなぐ）
     const nu = 112;
     const na = 6;
@@ -715,41 +803,20 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
 
   const toeCap = TOE_CAP[shapeValue(options, 'toeCap')];
   const toeW = toeCap.w;
-  const toe = surface(
-    shape,
-    [
-      {
-        s0: -toeW,
-        s1: toeW,
-        lo: zero,
-        hi: (s) => toeCap.hi(dist(s, 0) / toeW) + 0.002,
-        nu: 44,
-        nv: 14,
-      },
-    ],
-    0.012,
-    false,
-    skin,
-  );
+  const toeBand: Band = { s0: -toeW, s1: toeW, lo: zero, hi: (s) => toeCap.hi(dist(s, 0) / toeW) + 0.002, nu: 44, nv: 14 };
+  const toe = surface(shape, [toeBand], 0.012, false, skin);
 
   const counter = HEEL_COUNTER[shapeValue(options, 'heelCounter')];
   const heelW = counter.w;
-  const heelOverlay = surface(
-    shape,
-    [
-      {
-        s0: 0.5 - heelW,
-        s1: 0.5 + heelW,
-        lo: zero,
-        hi: (s) => 0.06 + counter.h * Math.max(0, 1 - (dist(s, 0.5) / heelW) ** 2) ** 0.7,
-        nu: 44,
-        nv: 14,
-      },
-    ],
-    0.012,
-    false,
-    skin,
-  );
+  const heelBand: Band = {
+    s0: 0.5 - heelW,
+    s1: 0.5 + heelW,
+    lo: zero,
+    hi: (s) => 0.06 + counter.h * Math.max(0, 1 - (dist(s, 0.5) / heelW) ** 2) ** 0.7,
+    nu: 44,
+    nv: 14,
+  };
+  const heelOverlay = surface(shape, [heelBand], 0.012, false, skin);
 
   // サイドパネル: 角を落とした六角形のプレートなど（すべてオリジナル形状）
   const panelKind = shapeValue(options, 'sidePanel');
@@ -772,7 +839,10 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
     return { s0, s1, lo: (s) => 0.2 + cut(s) * 0.5, hi: (s) => 0.6 - cut(s) + 0.002, nu: 36, nv: 10 };
   };
   const [pa, pb] = panelKind === 'saddle' ? [0.14, 0.33] : [0.15, 0.335];
-  const sidePanel = surface(shape, [panelBand(pa, pb), panelBand(1 - pa, 1 - pb)], 0.018, false, skin);
+  const panelBands = [panelBand(pa, pb), panelBand(1 - pa, 1 - pb)];
+  const sidePanel = surface(shape, panelBands, 0.018, false, skin, 0.018);
+  // 重ねるパーツの輪郭（アッパーの uv = (s,h) 上）。描画側でアッパーの縁に接地の影を落とすのに使う
+  upper.userData.overlayOutlines = [toeBand, heelBand, ...panelBands].map(bandOutline);
 
   const eyelets = Number(shapeValue(options, 'eyelets'));
   const eyestay = buildEyestay(shape, skin, eyelets);

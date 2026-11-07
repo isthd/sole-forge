@@ -448,3 +448,49 @@ export function getShadowTexture(): THREE.Texture {
   shadowTex = new THREE.CanvasTexture(c);
   return shadowTex;
 }
+
+/**
+ * 重ねたパーツ（トゥ・ヒール・サイドパネル）の縁にできる接地の影（アッパーの aoMap）。
+ * outlines はアッパーの uv = (s,h) 上の輪郭、size はアッパーの実寸。縁から外へ約 4mm でぼかす。
+ * 色の違うパーツを重ねても、浮いたシールではなくアッパーに縫い付けた革に見えるようにするため。
+ */
+const contactCache = new WeakMap<object, THREE.Texture>();
+export function getContactShadowTexture(outlines: [number, number][][], size: [number, number]): THREE.Texture {
+  const hit = contactCache.get(outlines);
+  if (hit) return hit;
+  const W = 1024;
+  const H = 256;
+  const c = makeCanvas(W, H);
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, W, H);
+  // 実寸の座標で描く（線の太さ = 実寸。s 方向と h 方向で密度が違うのを変換で吸収）
+  const [su, sv] = size;
+  ctx.setTransform(W / su, 0, 0, H / sv, 0, 0);
+  const width = 0.04;
+  const layers = 6;
+  for (const shift of [-1, 0, 1]) {
+    for (const loop of outlines) {
+      ctx.beginPath();
+      loop.forEach(([s, h], i) => {
+        const x = (s + shift) * su;
+        const y = (1 - h) * sv;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineJoin = 'round';
+      for (let k = layers; k >= 1; k--) {
+        ctx.lineWidth = (2 * width * k) / layers;
+        ctx.stroke();
+      }
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  contactCache.set(outlines, tex);
+  return tex;
+}
