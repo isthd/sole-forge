@@ -49,7 +49,11 @@ export function makePaintOverlay(mat: THREE.MeshPhysicalMaterial | THREE.MeshSta
     uSfGlowAmt: { value: 0 },
     uSfSpeckle: { value: 0 },
   };
-  mat.onBeforeCompile = (shader) => {
+  // 元のマテリアルの改造（ステッチなど）を先に当ててから重ねる
+  const base = mat.onBeforeCompile.bind(mat);
+  const baseKey = mat.userData.sfStitchUniforms ? mat.customProgramCacheKey() + '|' : '';
+  mat.onBeforeCompile = (shader, renderer) => {
+    base(shader, renderer);
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSfPos;')
@@ -84,7 +88,7 @@ float sfSeam = smoothstep(-0.07, 0.0, sfFront);`,
       .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uSfTint, sfMist * uSfTintAmt);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uSfGlow * (sfSeam * uSfGlowAmt);');
   };
-  mat.customProgramCacheKey = () => 'sf-paint-overlay-v1';
+  mat.customProgramCacheKey = () => baseKey + 'sf-paint-overlay-v1';
   // 下の新しい層より手前に描く（同じ形なので深度をずらす）。デカールはさらに手前（-4）
   mat.polygonOffset = true;
   mat.polygonOffsetFactor = -1;

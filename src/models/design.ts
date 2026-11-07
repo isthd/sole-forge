@@ -18,16 +18,20 @@ export function normalizeHex(input: string): string | null {
   return HEX_RE.test(s) ? s.toUpperCase() : null;
 }
 
+/**
+ * 新しい作品の配色。白レザーにグレースエードの補強パーツ、フォームのミッドソール、ガムソール。
+ * パーツの重なりとステッチが見える定番の組み合わせにして、最初から靴の作りが読めるようにする。
+ */
 export const DEFAULT_PARTS: Record<PartId, PartStyle> = {
   upper: { color: '#F2F2EE', material: 'leather' },
   toe: { color: '#F2F2EE', material: 'leather' },
-  heel: { color: '#1A1A1E', material: 'suede' },
-  eyestay: { color: '#1A1A1E', material: 'leather' },
+  heel: { color: '#8E8E94', material: 'suede' },
+  eyestay: { color: '#8E8E94', material: 'suede' },
   tongue: { color: '#F2F2EE', material: 'mesh' },
   lining: { color: '#2A2A30', material: 'canvas' },
-  sidePanel: { color: '#C6FF00', material: 'leather' },
-  midsole: { color: '#F7F5EE', material: 'leather' },
-  outsole: { color: '#1A1A1E', material: 'leather' },
+  sidePanel: { color: '#8E8E94', material: 'suede' },
+  midsole: { color: '#F4F1E8', material: 'foam' },
+  outsole: { color: '#A86A3C', material: 'rubber' },
   laces: { color: '#F2F2EE', material: 'canvas' },
 };
 

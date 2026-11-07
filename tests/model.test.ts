@@ -38,6 +38,23 @@ describe.each(BASE_MODEL_IDS)('%s procedural model', (id) => {
     for (const p of ['tongue', 'lining', 'midsole', 'outsole', 'laces'] as const) expect(geos[p].getAttribute('uv1'), p).toBeUndefined();
   });
 
+  it('ステッチの線がパーツの縁・アイステイ・履き口に沿ってあり、ソールに隠れる高さには無い', () => {
+    const lines = geos.upper.userData.stitchLines as [number, number, number, number, number][][];
+    // トゥ 2 本・ヒール 2 本・サイドパネル（左右）・アイステイ（左右）・履き口
+    expect(lines.length).toBeGreaterThanOrEqual(9);
+    for (const line of lines) {
+      expect(line.length).toBeGreaterThanOrEqual(2);
+      for (const [, h, , js, jh] of line) {
+        expect(h).toBeGreaterThan(0.02);
+        expect(h).toBeLessThan(1);
+        expect(js).toBeGreaterThan(0);
+        expect(jh).toBeGreaterThan(0);
+      }
+      // 長さは始点からの実寸の累積（単調増加）
+      for (let k = 1; k < line.length; k++) expect(line[k][2]).toBeGreaterThanOrEqual(line[k - 1][2]);
+    }
+  });
+
   it('パーツ ID と同じ名前のメッシュが 10 個できる', () => {
     const group = buildSneakerMeshes(def);
     const names = group.children.filter((c) => (c as THREE.Mesh).isMesh).map((c) => c.name).sort();

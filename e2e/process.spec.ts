@@ -89,7 +89,8 @@ test.describe.serial('制作過程の 3D 演出', () => {
 
     // 素材の張り替え: スプレー缶は出さず、塗り広げの層だけ
     await page.locator('[data-tab=material]').click();
-    await page.locator('[data-material=suede]').click();
+    // 標準の配色で使っていない素材（タップしたパーツが何でも必ず張り替わる）
+    await page.locator('[data-material=knit]').click();
     await expect.poll(async () => (await stats(page))!.overlays).toBeGreaterThan(0);
     expect((await stats(page))!.can).toBe(false);
     await page.screenshot({ path: `${OUT}/process-material.png` });

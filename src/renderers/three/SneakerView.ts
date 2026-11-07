@@ -14,6 +14,8 @@ import type { BaseModelDef } from '../../models/baseModel';
 import type { Decal, PartId, PartStyle, Vec3 } from '../../models/types';
 import { PART_IDS } from '../../models/types';
 import { buildSneakerMeshes } from './meshes';
+import { applyStitches, getStitchTexture, threadColor } from './stitches';
+import type { StitchLine } from '../../models/sneakerBuilder';
 import { MATERIAL_SPECS, PATTERN_TILE, getContactShadowTexture, getNormalMap, getPatternTexture, getShadowTexture, surfaceOf } from './textures';
 import { getDecalTexture } from './decalTextures';
 import {
@@ -236,6 +238,8 @@ export class SneakerView {
       mat.aoMap = getContactShadowTexture(outlines, uvSize);
       mat.aoMapIntensity = 1;
     }
+    const stitches = this.meshes.upper.geometry.userData.stitchLines as StitchLine[] | undefined;
+    if (stitches && skinSize) applyStitches(mat, geo, getStitchTexture(stitches), threadColor(style.color));
     return mat;
   }
 

@@ -196,6 +196,7 @@ const MAT_PREVIEW: Record<MaterialId, string> = {
   knit: 'repeating-linear-gradient(60deg, #0000 0 3px, #6e6e74 3px 5px), repeating-linear-gradient(-60deg, #0000 0 3px, #6e6e74 3px 5px), #8f8f95',
   metallic: 'repeating-linear-gradient(0deg, #fff1 0 1px, #0000 1px 3px), linear-gradient(160deg, #e8e8ee 0, #7c7c84 35%, #f4f4f8 55%, #5c5c64 100%)',
   rubber: 'radial-gradient(circle, #6a6a70 35%, #0000 40%) 0 0/5px 5px, #7c7c82',
+  foam: 'radial-gradient(circle at 35% 30%, #b4b4ba 0, #8f8f95 70%)',
 };
 
 function finishLabel(f: number) {

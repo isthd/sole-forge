@@ -11,7 +11,7 @@ export type PartId =
   | 'laces'
   | 'sidePanel';
 
-export type MaterialId = 'leather' | 'suede' | 'mesh' | 'canvas' | 'patent' | 'knit' | 'metallic' | 'rubber';
+export type MaterialId = 'leather' | 'suede' | 'mesh' | 'canvas' | 'patent' | 'knit' | 'metallic' | 'rubber' | 'foam';
 export type PatternType = 'gradient' | 'camo' | 'check' | 'dot' | 'stripe' | 'splatter' | 'marble';
 /** 柄の向き（ストライプ用）。h = 横縞、v = 縦縞、d = 斜め */
 export type PatternDirection = 'h' | 'v' | 'd';
@@ -124,7 +124,7 @@ export const PART_LABELS: Record<PartId, string> = {
   laces: '靴ひも',
 };
 
-export const MATERIAL_IDS: MaterialId[] = ['leather', 'suede', 'mesh', 'canvas', 'patent', 'knit', 'metallic', 'rubber'];
+export const MATERIAL_IDS: MaterialId[] = ['leather', 'suede', 'mesh', 'canvas', 'patent', 'knit', 'metallic', 'rubber', 'foam'];
 export const MATERIAL_LABELS: Record<MaterialId, string> = {
   leather: 'レザー',
   suede: 'スエード',
@@ -134,6 +134,7 @@ export const MATERIAL_LABELS: Record<MaterialId, string> = {
   knit: 'ニット',
   metallic: 'メタリック',
   rubber: 'ラバー',
+  foam: 'フォーム',
 };
 
 export const PATTERN_TYPES: PatternType[] = ['gradient', 'camo', 'check', 'dot', 'stripe', 'splatter', 'marble'];

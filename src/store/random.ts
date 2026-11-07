@@ -62,8 +62,8 @@ export function randomParts(seed = Date.now()): Record<PartId, PartStyle> {
     tongue: { color: r() < 0.5 ? main : neutral(0.9), material: mat('mesh') },
     lining: { color: r() < 0.5 ? accent : neutral(0.15), material: 'canvas' },
     sidePanel: { color: accent, material: mat('leather') },
-    midsole: { color: soleLight ? neutral(0.93) : neutral(0.12), material: 'leather' },
-    outsole: { color: r() < 0.5 ? neutral(0.1) : third, material: 'leather' },
+    midsole: { color: soleLight ? neutral(0.93) : neutral(0.12), material: 'foam' },
+    outsole: { color: r() < 0.5 ? neutral(0.1) : third, material: 'rubber' },
     laces: { color: r() < 0.5 ? neutral(0.95) : accent, material: 'canvas' },
   };
   // ときどき柄を入れる

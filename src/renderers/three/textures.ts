@@ -161,6 +161,15 @@ function rubberHeight(size: number) {
   return out;
 }
 
+/** フォーム（EVA のミッドソール）: ごく細かく浅い粒 */
+function foamHeight(size: number) {
+  const a = tileNoise(size, 256, 81);
+  const b = tileNoise(size, 64, 82);
+  const out = new Float32Array(size * size);
+  for (let i = 0; i < out.length; i++) out[i] = a[i] * 0.7 + b[i] * 0.3;
+  return out;
+}
+
 export interface MaterialSpec {
   roughness: number;
   metalness: number;
@@ -183,6 +192,7 @@ export const MATERIAL_SPECS: Record<MaterialId, MaterialSpec> = {
   knit: { roughness: 0.88, metalness: 0, sheen: 0.6, sheenRoughness: 0.6, normalScale: 1.1, density: 2.2, envMapIntensity: 0.55 },
   metallic: { roughness: 0.3, metalness: 0.92, normalScale: 0.18, density: 2, envMapIntensity: 1.25 },
   rubber: { roughness: 0.72, metalness: 0, normalScale: 0.35, density: 3, envMapIntensity: 0.5 },
+  foam: { roughness: 0.78, metalness: 0, normalScale: 0.1, density: 2, envMapIntensity: 0.6 },
 };
 
 /** ツヤ（finish: -1 マット 〜 1 光沢）を加味した表面の粗さ・映り込み・クリアコート */
@@ -217,10 +227,11 @@ export function getNormalMap(m: MaterialId): THREE.Texture | null {
     knit: knitHeight,
     metallic: brushedHeight,
     rubber: rubberHeight,
+    foam: foamHeight,
   };
   const h = heights[m]?.(size) ?? null;
   if (h) {
-    const strength: Partial<Record<MaterialId, number>> = { mesh: 4, canvas: 5, suede: 3, knit: 4, metallic: 3, rubber: 5 };
+    const strength: Partial<Record<MaterialId, number>> = { mesh: 4, canvas: 5, suede: 3, knit: 4, metallic: 3, rubber: 5, foam: 2 };
     tex = new THREE.CanvasTexture(heightToNormal(h, size, strength[m] ?? 6));
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 4;

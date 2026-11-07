@@ -10,7 +10,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { CameraState, Decal, PartId, SneakerDesign, Vec3 } from '../../models/types';
 import { getBaseModel, modelOf } from '../../models';
-import type { ViewPreset } from '../../models/baseModel';
+import { getGeometries, type BaseModelDef, type ViewPreset } from '../../models/baseModel';
 import { SneakerView, addStageLights, type DecalPreview, type FxStats, type PaintOrigin } from '../three/SneakerView';
 import { DecalGizmo, type DecalTransformPatch, type GizmoScreenPoints } from './DecalGizmo';
 
@@ -325,6 +325,56 @@ function Model(props: SceneProps & { view: SneakerView }) {
   );
 }
 
+/** カメラの縦の画角（度） */
+const FOV = 32;
+
+/** 型ごとの外形の点（アッパーとソールの頂点を間引いたもの）。視点を引く量を決めるのに使う */
+const outlineCache = new WeakMap<BaseModelDef, THREE.Vector3[]>();
+function outlinePoints(def: BaseModelDef): THREE.Vector3[] {
+  let pts = outlineCache.get(def);
+  if (pts) return pts;
+  pts = [];
+  const geos = getGeometries(def);
+  for (const id of ['upper', 'midsole', 'outsole'] as const) {
+    const pos = geos[id].getAttribute('position');
+    const step = Math.max(1, Math.floor(pos.count / 160));
+    for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+  }
+  outlineCache.set(def, pts);
+  return pts;
+}
+
+/**
+ * 縦長の画面でも靴全体が収まるよう、視点を注視点から遠ざける（収まっていれば元の位置のまま）。
+ * 靴の外形の点を投影し、すべてが画面の 90% 以内に入る最短の距離を二分探索で求める。
+ */
+export function fitCamera(pos: Vec3, target: Vec3, aspect: number, points: THREE.Vector3[]): THREE.Vector3 {
+  const p = new THREE.Vector3(...pos);
+  const t = new THREE.Vector3(...target);
+  if (!(aspect > 0)) return p;
+  const cam = new THREE.PerspectiveCamera(FOV, aspect, 0.1, 100);
+  const dir = p.clone().sub(t);
+  const q = new THREE.Vector3();
+  const fits = (k: number) => {
+    cam.position.copy(t).addScaledVector(dir, k);
+    cam.lookAt(t);
+    cam.updateMatrixWorld();
+    return points.every((c) => {
+      q.copy(c).project(cam);
+      return Math.abs(q.x) <= 0.9 && Math.abs(q.y) <= 0.9;
+    });
+  };
+  if (fits(1)) return p;
+  let lo = 1;
+  let hi = 3;
+  for (let i = 0; i < 16; i++) {
+    const m = (lo + hi) / 2;
+    if (fits(m)) hi = m;
+    else lo = m;
+  }
+  return t.addScaledVector(dir, hi);
+}
+
 function CameraRig({
   def,
   initial,
@@ -338,14 +388,15 @@ function CameraRig({
   controls: React.MutableRefObject<OrbitControlsImpl | null>;
   designId: string;
 }) {
-  const { camera, invalidate } = useThree();
+  const { camera, invalidate, size } = useThree();
+  const aspect = size.width / size.height;
   const anim = useRef<{ from: THREE.Vector3; to: THREE.Vector3; fromT: THREE.Vector3; toT: THREE.Vector3; t0: number } | null>(null);
 
   // 作品を開いたとき: 最後に見ていた角度へ
   useEffect(() => {
-    const pos = initial?.position ?? def.defaultCamera;
     const tgt = initial?.target ?? def.target;
-    camera.position.set(...pos);
+    const pos = initial?.position ? new THREE.Vector3(...initial.position) : fitCamera(def.defaultCamera, def.target, aspect, outlinePoints(def));
+    camera.position.copy(pos);
     controls.current?.target.set(...tgt);
     controls.current?.update();
     camera.lookAt(...tgt);
@@ -358,7 +409,7 @@ function CameraRig({
     const c = controls.current;
     anim.current = {
       from: camera.position.clone(),
-      to: new THREE.Vector3(...def.presets[request.preset]),
+      to: fitCamera(def.presets[request.preset], def.target, aspect, outlinePoints(def)),
       fromT: c ? c.target.clone() : new THREE.Vector3(...def.target),
       toT: new THREE.Vector3(...def.target),
       t0: performance.now(),
@@ -401,7 +452,7 @@ export function SneakerCanvas(props: SneakerCanvasProps) {
       <Canvas
         frameloop="demand"
         dpr={[1, 1.75]}
-        camera={{ fov: 32, near: 0.1, far: 100, position: props.initialCamera?.position ?? def.defaultCamera }}
+        camera={{ fov: FOV, near: 0.1, far: 100, position: props.initialCamera?.position ?? def.defaultCamera }}
         gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;

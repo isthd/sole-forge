@@ -370,6 +370,108 @@ function bandOutline(b: Band): [number, number][] {
   return out;
 }
 
+/**
+ * ステッチ（縫い目）の 1 本。アッパーの uv1 = (s,h) 上の折れ線で、各点は
+ * [s, h, 始点からの実寸の長さ, s 方向の実寸の伸び, h 方向の実寸の伸び]。
+ * 描画側はこれをテクスチャに焼き込み、実寸の長さで縫い目の間隔を刻む。
+ */
+export type StitchLine = [number, number, number, number, number][];
+
+/** (s,h) での曲面の伸び（uv が 1 動いたときの実寸） */
+function skinMetric(shape: Shape, s: number, h: number): [number, number] {
+  const e = 1e-3;
+  const js = shape.upperP(s + e, h).distanceTo(shape.upperP(s - e, h)) / (2 * e);
+  const h0 = clamp(h - e, 0, 1);
+  const h1 = clamp(h + e, 0, 1);
+  const jh = shape.upperP(s, h1).distanceTo(shape.upperP(s, h0)) / (h1 - h0);
+  return [js, jh];
+}
+
+/** (s,h) の点列に実寸の長さと伸びを付けてステッチにする */
+function toStitch(shape: Shape, pts: [number, number][]): StitchLine {
+  const out: StitchLine = [];
+  let len = 0;
+  pts.forEach(([s, h], i) => {
+    if (i > 0) len += shape.upperP(s, h).distanceTo(shape.upperP(pts[i - 1][0], pts[i - 1][1]));
+    out.push([s, h, len, ...skinMetric(shape, s, h)]);
+  });
+  return out;
+}
+
+/** ソールに隠れる高さ（これより下の縁は縫わない） */
+const STITCH_MIN_H = 0.02;
+
+/**
+ * 重ねたパーツの縁から実寸で inset だけ内側を通るステッチ。insets の数だけ平行に縫う（2 本ならダブルステッチ）。
+ * ソールに隠れる下の縁は縫わない。skipTop なら上の縁（甲の縁など）も縫わない。
+ */
+function stitchRows(shape: Shape, b: Band, insets: number[], skipTop = false): StitchLine[] {
+  const ring: [number, number][] = [];
+  for (const p of bandOutline(b)) {
+    const q = ring[ring.length - 1];
+    if (!q || Math.abs(q[0] - p[0]) > 1e-6 || Math.abs(q[1] - p[1]) > 1e-6) ring.push(p);
+  }
+  const f = ring[0];
+  const l = ring[ring.length - 1];
+  if (Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6) ring.pop();
+  const n = ring.length;
+  if (n < 3) return [];
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const [s0, h0] = ring[i];
+    const [s1, h1] = ring[(i + 1) % n];
+    area += s0 * h1 - s1 * h0;
+  }
+  const inwardSign = area > 0 ? 1 : -1;
+  const lines: StitchLine[] = [];
+  for (const inset of insets) {
+    const pts = ring.map(([s, h], i) => {
+      const [sp, hp] = ring[(i - 1 + n) % n];
+      const [sn, hn] = ring[(i + 1) % n];
+      const [js, jh] = skinMetric(shape, s, h);
+      // 実寸の接線 → 左手の法線（反時計回りなら内向き）→ uv へ戻す
+      let tx = (sn - sp) * js;
+      let ty = (hn - hp) * jh;
+      const tl = Math.hypot(tx, ty) || 1;
+      tx /= tl;
+      ty /= tl;
+      const ns = (-ty * inwardSign * inset) / js;
+      const nh = (tx * inwardSign * inset) / jh;
+      const p: [number, number] = [s + ns, h + nh];
+      const keep = h > STITCH_MIN_H && p[1] > STITCH_MIN_H && p[1] < 0.995 && !(skipTop && h >= b.hi(s) - 1e-6 && h > b.lo(s) + 1e-6);
+      return { p, keep };
+    });
+    // 縫わない点で切って、ひと続きの区間ごとに 1 本にする（輪が全部つながるなら閉じる）
+    const start = pts.findIndex((q) => !q.keep);
+    if (start < 0) {
+      lines.push(toStitch(shape, [...pts.map((q) => q.p), pts[0].p]));
+      continue;
+    }
+    let run: [number, number][] = [];
+    for (let k = 1; k <= n; k++) {
+      const q = pts[(start + k) % n];
+      if (q.keep) run.push(q.p);
+      else {
+        if (run.length >= 2) lines.push(toStitch(shape, run));
+        run = [];
+      }
+    }
+    if (run.length >= 2) lines.push(toStitch(shape, run));
+  }
+  return lines;
+}
+
+/** 履き口の縁のステッチ（アイステイより後ろ。縁から実寸で inset 下） */
+function collarStitch(shape: Shape, inset: number): StitchLine {
+  const pts: [number, number][] = [];
+  const n = 64;
+  for (let i = 0; i <= n; i++) {
+    const s = lerp(0.268, 0.732, i / n);
+    pts.push([s, 1 - inset / skinMetric(shape, s, 1)[1]]);
+  }
+  return toStitch(shape, pts);
+}
+
 /** アッパーの uv はもともと (s,h) なので、そのまま共通座標 uv1 にする */
 function addSkinUV(upper: THREE.BufferGeometry): [number, number] {
   upper.setAttribute('uv1', upper.getAttribute('uv').clone());
@@ -637,19 +739,14 @@ function eyeletPoints(shape: Shape, count = 7) {
   return { lat, med };
 }
 
+/** アイステイ（ハトメの並ぶ帯）の (s,h) 範囲。外側・内側の 2 本 */
+const EYESTAY_BANDS: Band[] = [
+  { s0: 0.01, s1: 0.262, lo: () => 0.86, hi: () => 1, nu: 48, nv: 4 },
+  { s0: 0.738, s1: 0.99, lo: () => 0.86, hi: () => 1, nu: 48, nv: 4 },
+];
+
 function buildEyestay(shape: Shape, skin: [number, number], eyelets: number): THREE.BufferGeometry {
-  const lo = () => 0.86;
-  const hi = () => 1;
-  const strip = surface(
-    shape,
-    [
-      { s0: 0.01, s1: 0.262, lo, hi, nu: 48, nv: 4 },
-      { s0: 0.738, s1: 0.99, lo, hi, nu: 48, nv: 4 },
-    ],
-    0.02,
-    false,
-    skin,
-  );
+  const strip = surface(shape, EYESTAY_BANDS, 0.02, false, skin);
   const { lat, med } = eyeletPoints(shape, eyelets);
   const rings: THREE.BufferGeometry[] = [];
   const zAxis = V(0, 0, 1);
@@ -657,9 +754,10 @@ function buildEyestay(shape: Shape, skin: [number, number], eyelets: number): TH
     const t = new THREE.TorusGeometry(0.03, 0.009, 6, 10);
     t.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(zAxis, e.n));
     t.translate(e.p.x, e.p.y, e.p.z);
-    // 結合するため uv1 も持たせる（輪の実寸に合わせて縮めた uv）
+    // 結合するため uv1 も持たせる（輪の実寸に合わせて縮めた uv）。
+    // h は 1 つ下の周期（-1）へずらす: タイルする素材の凹凸は同じで、ステッチ（h が 0..1 の外は描かない）は乗らない
     const ruv = t.getAttribute('uv').array as Float32Array;
-    t.setAttribute('uv1', new THREE.Float32BufferAttribute(ruv.map((v, i) => v * (i % 2 ? 0.04 : 0.03)), 2));
+    t.setAttribute('uv1', new THREE.Float32BufferAttribute(ruv.map((v, i) => (i % 2 ? v * 0.04 - 1 : v * 0.03)), 2));
     rings.push(t);
   }
   const g = mergeGeometries([strip, ...rings])!;
@@ -846,6 +944,16 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
 
   const eyelets = Number(shapeValue(options, 'eyelets'));
   const eyestay = buildEyestay(shape, skin, eyelets);
+  // ステッチ: 重ねたパーツの縁の内側（トゥとヒールはダブル）と、アイステイの下の縁、履き口の縁。
+  // 描画側でアッパーと共通の uv1 = (s,h) に焼き込み、uv1 を持つパーツすべてに貼る（上に重なるパーツの線だけが見える）
+  const stitchLines: StitchLine[] = [
+    ...stitchRows(shape, toeBand, [0.03, 0.058]),
+    ...stitchRows(shape, heelBand, [0.03, 0.058]),
+    ...panelBands.flatMap((b) => stitchRows(shape, b, [0.03])),
+    ...EYESTAY_BANDS.flatMap((b) => stitchRows(shape, b, [0.024], true)),
+    collarStitch(shape, 0.07),
+  ];
+  upper.userData.stitchLines = stitchLines;
   const tongue = buildTongue(shape, shapeValue(options, 'tongue'));
   const laces = buildLaces(shape, {
     eyelets,
