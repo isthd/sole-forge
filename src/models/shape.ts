@@ -59,6 +59,17 @@ export const SHAPE_OPTIONS: Record<ShapeKey, ShapeOptionDef> = {
       { value: 'oval', label: '楕円' },
       { value: 'diamond', label: 'ダイヤ' },
       { value: 'saddle', label: 'サドル' },
+      { value: 'quarter', label: 'クォーター' },
+    ],
+  },
+  mudguard: {
+    key: 'mudguard',
+    label: 'マッドガード',
+    default: 'none',
+    choices: [
+      { value: 'none', label: 'なし' },
+      { value: 'low', label: '低め' },
+      { value: 'high', label: '高め' },
     ],
   },
   tongue: {
@@ -116,7 +127,7 @@ export const SHAPE_KEYS = Object.keys(SHAPE_OPTIONS) as ShapeKey[];
 /** パーツごとに出す形の項目（形の項目が無いパーツは空） */
 export const PART_SHAPE_KEYS: Record<PartId, ShapeKey[]> = {
   upper: [],
-  toe: ['toeCap'],
+  toe: ['toeCap', 'mudguard'],
   heel: ['heelCounter', 'pullTab'],
   eyestay: ['eyelets'],
   tongue: ['tongue'],

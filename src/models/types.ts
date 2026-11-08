@@ -42,7 +42,9 @@ export interface ShapeOptions {
   heelCounter?: 'standard' | 'low' | 'high';
   /** auto = ベース型の標準（ランナーは有り、ほかは無し） */
   pullTab?: 'auto' | 'none' | 'short' | 'long';
-  sidePanel?: 'hex' | 'oval' | 'diamond' | 'saddle';
+  sidePanel?: 'hex' | 'oval' | 'diamond' | 'saddle' | 'quarter';
+  /** ソールのすぐ上を一周する帯（トゥの一部） */
+  mudguard?: 'none' | 'low' | 'high';
   tongue?: 'standard' | 'short' | 'long';
   eyelets?: '7' | '6' | '5';
   laceWidth?: 'standard' | 'thin' | 'thick';

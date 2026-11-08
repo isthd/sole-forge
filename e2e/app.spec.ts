@@ -136,7 +136,9 @@ test.describe.serial('SOLE FORGE MVP 受け入れ', () => {
     await page.locator('[data-shape=eyelets][data-value="5"]').click();
     await page.locator('.side.left [data-part=toe]').click();
     await page.locator('[data-shape=toeCap][data-value=long]').click();
-    await expect.poll(async () => (await store(page).design()).shape).toEqual({ toeCap: 'long', sidePanel: 'saddle', eyelets: '5', laceWidth: 'thick' });
+    await page.locator('[data-shape=mudguard][data-value=high]').click();
+    // 新しい作品はクォーター＋低めのマッドガードで始まる。選び直した値に置き換わる
+    await expect.poll(async () => (await store(page).design()).shape).toEqual({ toeCap: 'long', mudguard: 'high', sidePanel: 'saddle', eyelets: '5', laceWidth: 'thick' });
     await page.screenshot({ path: `${OUT}/shape-options.png` });
     await page.locator('[data-tab=material]').click();
     await page.getByTestId('finish').fill('0.6');

@@ -401,11 +401,19 @@ function toStitch(shape: Shape, pts: [number, number][]): StitchLine {
 /** ソールに隠れる高さ（これより下の縁は縫わない） */
 const STITCH_MIN_H = 0.02;
 
-/**
- * 重ねたパーツの縁から実寸で inset だけ内側を通るステッチ。insets の数だけ平行に縫う（2 本ならダブルステッチ）。
- * ソールに隠れる下の縁は縫わない。skipTop なら上の縁（甲の縁など）も縫わない。
- */
-function stitchRows(shape: Shape, b: Band, insets: number[], skipTop = false): StitchLine[] {
+/** (s,h) が帯の中か（s は 1 周で折り返して比べる） */
+function inBand(b: Band, s: number, h: number): boolean {
+  const a = Math.min(b.s0, b.s1);
+  const c = Math.max(b.s0, b.s1);
+  for (const ss of [s, s - 1, s + 1]) {
+    if (ss >= a && ss <= c && h >= b.lo(ss) - 1e-4 && h <= b.hi(ss) + 1e-4) return true;
+  }
+  return false;
+}
+const coveredBy = (bands: Band[], s: number, h: number) => bands.some((b) => inBand(b, s, h));
+
+/** 帯の輪郭（重複点なし）を反時計回り（(s,h) で面積が正）にそろえる */
+function ccwRing(b: Band): [number, number][] {
   const ring: [number, number][] = [];
   for (const p of bandOutline(b)) {
     const q = ring[ring.length - 1];
@@ -413,52 +421,76 @@ function stitchRows(shape: Shape, b: Band, insets: number[], skipTop = false): S
   }
   const f = ring[0];
   const l = ring[ring.length - 1];
-  if (Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6) ring.pop();
-  const n = ring.length;
-  if (n < 3) return [];
+  if (ring.length > 1 && Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6) ring.pop();
   let area = 0;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < ring.length; i++) {
     const [s0, h0] = ring[i];
-    const [s1, h1] = ring[(i + 1) % n];
+    const [s1, h1] = ring[(i + 1) % ring.length];
     area += s0 * h1 - s1 * h0;
   }
-  const inwardSign = area > 0 ? 1 : -1;
+  return area >= 0 ? ring : ring.reverse();
+}
+
+/** 輪の点を「描く点」だけのひと続きの区間に切り分ける（全部描くなら閉じた 1 本） */
+function splitRuns(shape: Shape, pts: { p: [number, number]; keep: boolean }[]): StitchLine[] {
+  const n = pts.length;
+  const out: StitchLine[] = [];
+  const start = pts.findIndex((q) => !q.keep);
+  if (start < 0) return n >= 2 ? [toStitch(shape, [...pts.map((q) => q.p), pts[0].p])] : [];
+  let run: [number, number][] = [];
+  for (let k = 1; k <= n; k++) {
+    const q = pts[(start + k) % n];
+    if (q.keep) run.push(q.p);
+    else {
+      if (run.length >= 2) out.push(toStitch(shape, run));
+      run = [];
+    }
+  }
+  if (run.length >= 2) out.push(toStitch(shape, run));
+  return out;
+}
+
+/**
+ * 重ねたパーツの縁から実寸で inset だけ内側を通るステッチ。insets の数だけ平行に縫う（2 本ならダブルステッチ）。
+ * ソールに隠れる下の縁、上に重なるパーツ（covers）に隠れる所は縫わない。skipTop なら上の縁（甲の縁など）も縫わない。
+ */
+function stitchRows(shape: Shape, b: Band, insets: number[], skipTop = false, covers: Band[] = []): StitchLine[] {
+  const ring = ccwRing(b);
+  const n = ring.length;
+  if (n < 3) return [];
   const lines: StitchLine[] = [];
   for (const inset of insets) {
     const pts = ring.map(([s, h], i) => {
       const [sp, hp] = ring[(i - 1 + n) % n];
       const [sn, hn] = ring[(i + 1) % n];
       const [js, jh] = skinMetric(shape, s, h);
-      // 実寸の接線 → 左手の法線（反時計回りなら内向き）→ uv へ戻す
+      // 実寸の接線 → 左手の法線（反時計回りなので内向き）→ uv へ戻す
       let tx = (sn - sp) * js;
       let ty = (hn - hp) * jh;
       const tl = Math.hypot(tx, ty) || 1;
       tx /= tl;
       ty /= tl;
-      const ns = (-ty * inwardSign * inset) / js;
-      const nh = (tx * inwardSign * inset) / jh;
-      const p: [number, number] = [s + ns, h + nh];
-      const keep = h > STITCH_MIN_H && p[1] > STITCH_MIN_H && p[1] < 0.995 && !(skipTop && h >= b.hi(s) - 1e-6 && h > b.lo(s) + 1e-6);
+      const p: [number, number] = [s - (ty * inset) / js, h + (tx * inset) / jh];
+      const top = skipTop && h >= b.hi(s) - 1e-6 && h > b.lo(s) + 1e-6;
+      const keep = h > STITCH_MIN_H && p[1] > STITCH_MIN_H && p[1] < 0.995 && !top && !coveredBy(covers, p[0], p[1]);
       return { p, keep };
     });
-    // 縫わない点で切って、ひと続きの区間ごとに 1 本にする（輪が全部つながるなら閉じる）
-    const start = pts.findIndex((q) => !q.keep);
-    if (start < 0) {
-      lines.push(toStitch(shape, [...pts.map((q) => q.p), pts[0].p]));
-      continue;
-    }
-    let run: [number, number][] = [];
-    for (let k = 1; k <= n; k++) {
-      const q = pts[(start + k) % n];
-      if (q.keep) run.push(q.p);
-      else {
-        if (run.length >= 2) lines.push(toStitch(shape, run));
-        run = [];
-      }
-    }
-    if (run.length >= 2) lines.push(toStitch(shape, run));
+    lines.push(...splitRuns(shape, pts));
   }
   return lines;
+}
+
+/**
+ * 重ねたパーツの縁（コバ）の線。進行方向の左がパーツの内側になる向き。
+ * 描画側で縁の内側を少し濃く塗る（革の切り口の塗装）。ソールや上のパーツに隠れる所は除く。
+ */
+function edgeRuns(shape: Shape, b: Band, covers: Band[] = []): StitchLine[] {
+  const ring = ccwRing(b);
+  if (ring.length < 3) return [];
+  return splitRuns(
+    shape,
+    ring.map(([s, h]) => ({ p: [s, h] as [number, number], keep: h > STITCH_MIN_H && !coveredBy(covers, s, h) })),
+  );
 }
 
 /** 履き口の縁のステッチ（アイステイより後ろ。縁から実寸で inset 下） */
@@ -751,7 +783,7 @@ function buildEyestay(shape: Shape, skin: [number, number], eyelets: number): TH
   const rings: THREE.BufferGeometry[] = [];
   const zAxis = V(0, 0, 1);
   for (const e of [...lat, ...med]) {
-    const t = new THREE.TorusGeometry(0.03, 0.009, 6, 10);
+    const t = new THREE.TorusGeometry(0.03, 0.009, 5, 8);
     t.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(zAxis, e.n));
     t.translate(e.p.x, e.p.y, e.p.z);
     // 結合するため uv1 も持たせる（輪の実寸に合わせて縮めた uv）。
@@ -843,6 +875,31 @@ const HEEL_COUNTER: Record<NonNullable<ShapeOptions['heelCounter']>, { w: number
 
 const PULL_TAB: Record<'short' | 'long', number> = { short: 0.12, long: 0.25 };
 
+/** マッドガードの上端の高さ（足形の輪郭から測った実寸。下 0.08 ほどはミッドソールに隠れる） */
+const MUDGUARD: Record<NonNullable<ShapeOptions['mudguard']>, number> = { none: 0, low: 0.2, high: 0.3 };
+
+/** s ごとのアッパーの実寸の高さ（足形の輪郭 h=0 から履き口 h=1 までの断面の長さ）。表から補間して返す */
+function upperHeights(shape: Shape): (s: number) => number {
+  const n = 96;
+  const tab: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const s = i / n;
+    let len = 0;
+    let prev = shape.upperP(s, 0);
+    for (let j = 1; j <= 16; j++) {
+      const q = shape.upperP(s, j / 16);
+      len += q.distanceTo(prev);
+      prev = q;
+    }
+    tab.push(len);
+  }
+  return (s: number) => {
+    const x = wrap01(s) * n;
+    const i = Math.min(n - 1, Math.floor(x));
+    return lerp(tab[i], tab[i + 1], x - i);
+  };
+}
+
 export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}): PartGeometries {
   const shape = createSneakerShape(params);
   const one = () => 1;
@@ -852,15 +909,15 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
     return Math.min(d, 1 - d);
   };
 
-  const upper = surface(shape, [{ s0: 0, s1: 1, lo: zero, hi: one, nu: 112, nv: 28 }], 0);
+  const upper = surface(shape, [{ s0: 0, s1: 1, lo: zero, hi: one, nu: 112, nv: 24 }], 0);
   // アッパーの表面に重ねるパーツ（トゥ・ヒール・サイドパネル・アイステイ）はアッパーと共通の座標で素材を貼る
   const skin = addSkinUV(upper);
 
   const lining = (() => {
-    const inner = surface(shape, [{ s0: 0, s1: 1, lo: () => 0.12, hi: one, nu: 112, nv: 8 }], -0.04, true);
+    const inner = surface(shape, [{ s0: 0, s1: 1, lo: () => 0.12, hi: one, nu: 112, nv: 6 }], -0.04, true);
     // 履き口のパッド（外側の縁から内側の縁まで丸くつなぐ）
     const nu = 112;
-    const na = 6;
+    const na = 5;
     const pos: number[] = [];
     const nor: number[] = [];
     const uv: number[] = [];
@@ -901,8 +958,8 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
 
   const toeCap = TOE_CAP[shapeValue(options, 'toeCap')];
   const toeW = toeCap.w;
-  const toeBand: Band = { s0: -toeW, s1: toeW, lo: zero, hi: (s) => toeCap.hi(dist(s, 0) / toeW) + 0.002, nu: 44, nv: 14 };
-  const toe = surface(shape, [toeBand], 0.012, false, skin);
+  const toeBand: Band = { s0: -toeW, s1: toeW, lo: zero, hi: (s) => toeCap.hi(dist(s, 0) / toeW) + 0.002, nu: 44, nv: 10 };
+  const toeCapGeo = surface(shape, [toeBand], 0.012, false, skin, 0.012);
 
   const counter = HEEL_COUNTER[shapeValue(options, 'heelCounter')];
   const heelW = counter.w;
@@ -912,9 +969,25 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
     lo: zero,
     hi: (s) => 0.06 + counter.h * Math.max(0, 1 - (dist(s, 0.5) / heelW) ** 2) ** 0.7,
     nu: 44,
-    nv: 14,
+    nv: 10,
   };
-  const heelOverlay = surface(shape, [heelBand], 0.012, false, skin);
+  const heelOverlay = surface(shape, [heelBand], 0.012, false, skin, 0.012);
+
+  // マッドガード: ソールのすぐ上を一周する帯（トゥキャップとヒールカウンターの下に潜る）。高さは実寸でそろえる
+  const mudH = MUDGUARD[shapeValue(options, 'mudguard')];
+  let mudBand: Band | null = null;
+  if (mudH > 0) {
+    const tall = upperHeights(shape);
+    // ランナーはかかとでミッドソールが立ち上がるので、その分だけ高くして見える幅をそろえる
+    const lipAt = (s: number) => (shape.p.midsoleLip ?? 0) * (1 - smooth(-1.0, -0.15, shape.upperP(s, 0).x));
+    mudBand = { s0: toeW * 0.5, s1: 1 - toeW * 0.5, lo: zero, hi: (s) => clamp((mudH + lipAt(s)) / tall(s), 0.05, 0.6), nu: 64, nv: 4 };
+  }
+  let toe = toeCapGeo;
+  if (mudBand) {
+    toe = mergeGeometries([toeCapGeo, surface(shape, [mudBand], 0.008, false, skin, 0.008)])!;
+    toe.userData.uvSize = toeCapGeo.userData.uvSize;
+    toe.userData.uv1Size = skin;
+  }
 
   // サイドパネル: 角を落とした六角形のプレートなど（すべてオリジナル形状）
   const panelKind = shapeValue(options, 'sidePanel');
@@ -928,6 +1001,24 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
       const r = (s: number) => 1 - Math.abs(2 * tOf(s) - 1);
       return { s0, s1, lo: (s) => 0.41 - 0.23 * r(s), hi: (s) => 0.41 + 0.23 * r(s) + 0.002, nu: 36, nv: 10 };
     }
+    if (panelKind === 'quarter') {
+      // クォーター: アイステイの下から靴底まで、後ろへ傾いて下へ広がる帯。前後の縁はどちらも斜めの直線
+      // (s,h) の 4 隅: 上の前 (a,0.88) / 上の後ろ (b,0.88) / 下の前 (c,0) / 下の後ろ (d,0)。s0 < s1 は外側、逆なら内側
+      const dir = Math.sign(s1 - s0);
+      const at = (k: number) => s0 + dir * k;
+      const [a, b, c, d] = [0, 0.08, 0.06, 0.19].map(at);
+      const top = 0.88;
+      const lerpEdge = (sA: number, sB: number, s: number) => clamp((s - sB) / (sA - sB), 0, 1) * top;
+      return {
+        s0: a,
+        s1: d,
+        // 前の縁より前は下端が上がる（斜めの前縁）、後ろの縁より後ろは上端が下がる（斜めの後縁）
+        lo: (s) => (dir * (s - c) < 0 ? lerpEdge(a, c, s) : 0),
+        hi: (s) => (dir * (s - b) > 0 ? lerpEdge(b, d, s) : top) + 0.002,
+        nu: 40,
+        nv: 10,
+      };
+    }
     if (panelKind === 'saddle') {
       // サドル: 土踏まずの上を靴底から甲の縁の手前まで覆う帯（上の角を丸める）
       const corner = (s: number) => Math.max(0, 0.12 - Math.min(tOf(s), 1 - tOf(s))) ** 2 * 9;
@@ -936,24 +1027,38 @@ export function buildSneaker(params: SneakerParams, options: ShapeOptions = {}):
     const cut = (s: number) => Math.max(0, 0.16 - Math.min(tOf(s), 1 - tOf(s))) * 1.5;
     return { s0, s1, lo: (s) => 0.2 + cut(s) * 0.5, hi: (s) => 0.6 - cut(s) + 0.002, nu: 36, nv: 10 };
   };
-  const [pa, pb] = panelKind === 'saddle' ? [0.14, 0.33] : [0.15, 0.335];
+  const [pa, pb] = panelKind === 'saddle' ? [0.14, 0.33] : panelKind === 'quarter' ? [0.165, 0.355] : [0.15, 0.335];
   const panelBands = [panelBand(pa, pb), panelBand(1 - pa, 1 - pb)];
   const sidePanel = surface(shape, panelBands, 0.018, false, skin, 0.018);
   // 重ねるパーツの輪郭（アッパーの uv = (s,h) 上）。描画側でアッパーの縁に接地の影を落とすのに使う
-  upper.userData.overlayOutlines = [toeBand, heelBand, ...panelBands].map(bandOutline);
+  upper.userData.overlayOutlines = [toeBand, heelBand, ...panelBands, ...(mudBand ? [mudBand] : [])].map(bandOutline);
 
   const eyelets = Number(shapeValue(options, 'eyelets'));
   const eyestay = buildEyestay(shape, skin, eyelets);
   // ステッチ: 重ねたパーツの縁の内側（トゥとヒールはダブル）と、アイステイの下の縁、履き口の縁。
   // 描画側でアッパーと共通の uv1 = (s,h) に焼き込み、uv1 を持つパーツすべてに貼る（上に重なるパーツの線だけが見える）
+  // 重なり順（上から）: アイステイ → サイドパネル → トゥ・ヒール → マッドガード。下のパーツの線は上のパーツに隠れる所を除く
+  const overPanel = EYESTAY_BANDS;
+  const overToeHeel = [...panelBands, ...EYESTAY_BANDS];
+  const overMud = [toeBand, heelBand, ...panelBands];
   const stitchLines: StitchLine[] = [
-    ...stitchRows(shape, toeBand, [0.03, 0.058]),
-    ...stitchRows(shape, heelBand, [0.03, 0.058]),
-    ...panelBands.flatMap((b) => stitchRows(shape, b, [0.03])),
+    ...stitchRows(shape, toeBand, [0.03, 0.058], false, overToeHeel),
+    ...stitchRows(shape, heelBand, [0.03, 0.058], false, overToeHeel),
+    ...panelBands.flatMap((b) => stitchRows(shape, b, [0.03], false, overPanel)),
+    ...(mudBand ? stitchRows(shape, mudBand, [0.028], false, overMud) : []),
     ...EYESTAY_BANDS.flatMap((b) => stitchRows(shape, b, [0.024], true)),
     collarStitch(shape, 0.07),
   ];
   upper.userData.stitchLines = stitchLines;
+  // 縁（コバ）の塗り: 重ねたパーツの縁の内側を少し濃くする
+  const edgeLines: StitchLine[] = [
+    ...edgeRuns(shape, toeBand, overToeHeel),
+    ...edgeRuns(shape, heelBand, overToeHeel),
+    ...panelBands.flatMap((b) => edgeRuns(shape, b, overPanel)),
+    ...(mudBand ? edgeRuns(shape, mudBand, overMud) : []),
+    ...EYESTAY_BANDS.flatMap((b) => edgeRuns(shape, b)),
+  ];
+  upper.userData.edgeLines = edgeLines;
   const tongue = buildTongue(shape, shapeValue(options, 'tongue'));
   const laces = buildLaces(shape, {
     eyelets,

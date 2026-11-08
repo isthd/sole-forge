@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useEditor, undo, redo, endBurst, HISTORY_LIMIT } from '../src/store/editorStore';
-import { createDesign, mirrorDecals } from '../src/models/design';
+import { DEFAULT_PARTS, createDesign, mirrorDecals } from '../src/models/design';
 import { randomParts } from '../src/store/random';
 import { PART_IDS, MATERIAL_IDS, PATTERN_TYPES } from '../src/models/types';
 
@@ -33,7 +33,7 @@ describe('editor store (zustand + zundo)', () => {
     for (let i = 0; i < 20; i++) s().setPartColor('toe', '#0000' + (10 + i).toString());
     expect(useEditor.temporal.getState().pastStates.length).toBe(1);
     undo();
-    expect(s().design!.parts.toe.color).toBe('#F2F2EE');
+    expect(s().design!.parts.toe.color).toBe(DEFAULT_PARTS.toe.color);
   });
 
   it('10 パーツすべてに色・素材・柄を設定できる', () => {

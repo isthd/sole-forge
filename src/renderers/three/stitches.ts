@@ -17,9 +17,16 @@ const STITCH_PERIOD = 0.045;
 /** 距離の山の半径（実寸）。シェーダーは山の半分の高さで糸を切るので、糸の幅はおよそこの値 */
 const PROFILE_RADIUS = 0.016;
 
+/** 縁（コバ）の塗りの幅（実寸。パーツの内側へ約 1.2mm） */
+const EDGE_WIDTH = 0.012;
+
 const cache = new WeakMap<object, THREE.DataTexture>();
 
-export function getStitchTexture(lines: StitchLine[]): THREE.DataTexture {
+/**
+ * 縫い目と縁の塗りのテクスチャ。A = 1 − 縁の塗りの濃さ（縁の線の左側＝パーツの内側だけに塗る）。
+ * キャッシュは縫い目の配列（ベース型＋形ごとに 1 つ）で引く。
+ */
+export function getStitchTexture(lines: StitchLine[], edges: StitchLine[] = []): THREE.DataTexture {
   const hit = cache.get(lines);
   if (hit) return hit;
   const data = new Uint8Array(W * H * 4);
@@ -69,6 +76,44 @@ export function getStitchTexture(lines: StitchLine[]): THREE.DataTexture {
       }
     }
   }
+  const edge = new Float32Array(W * H);
+  for (const line of edges) {
+    for (let k = 1; k < line.length; k++) {
+      const [s0, h0, , js0, jh0] = line[k - 1];
+      const [s1, h1, , js1, jh1] = line[k];
+      const sx = (js0 + js1) / 2 / W;
+      const sy = (jh0 + jh1) / 2 / H;
+      const x0 = s0 * W;
+      const y0 = h0 * H;
+      const dxp = (s1 - s0) * W * sx;
+      const dyp = (h1 - h0) * H * sy;
+      const segLen = Math.hypot(dxp, dyp);
+      if (segLen < 1e-9) continue;
+      const ex = Math.ceil(EDGE_WIDTH / sx) + 1;
+      const ey = Math.ceil(EDGE_WIDTH / sy) + 1;
+      const yA = Math.max(0, Math.floor(Math.min(y0, h1 * H)) - ey);
+      const yB = Math.min(H - 1, Math.ceil(Math.max(y0, h1 * H)) + ey);
+      const xA = Math.floor(Math.min(x0, s1 * W)) - ex;
+      const xB = Math.ceil(Math.max(x0, s1 * W)) + ex;
+      for (let py = yA; py <= yB; py++) {
+        for (let px = xA; px <= xB; px++) {
+          const qx = (px + 0.5 - x0) * sx;
+          const qy = (py + 0.5 - y0) * sy;
+          const t = (qx * dxp + qy * dyp) / (segLen * segLen);
+          if (t < -0.02 || t > 1.02) continue;
+          // 左側（内側）までの距離。わずかに外へはみ出させて、丸めた縁の頂点（縁と同じ uv）も確実に塗る
+          const sd = (dxp * qy - dyp * qx) / segLen;
+          if (sd < -0.003 || sd > EDGE_WIDTH) continue;
+          const v = 1 - Math.max(0, sd - EDGE_WIDTH * 0.5) / (EDGE_WIDTH * 0.5);
+          const ix = (((px % W) + W) % W) + py * W;
+          if (v > edge[ix]) {
+            edge[ix] = v;
+            data[ix * 4 + 3] = Math.round((1 - v) * 255);
+          }
+        }
+      }
+    }
+  }
   // DataTexture は 1 行目が v = 0（下）。h をそのまま行にしたので上下反転は不要
   const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
   tex.wrapS = THREE.RepeatWrapping;
@@ -94,7 +139,14 @@ export function threadColor(hex: string): THREE.Color {
  * マテリアルにステッチを描かせる。geometry は uv1 を持つこと（sfSkin として共有して渡す）。
  * 塗りの演出（paintFx）はこの onBeforeCompile を引き継いで重ねる。
  */
-export function applyStitches(mat: THREE.MeshPhysicalMaterial, geo: THREE.BufferGeometry, tex: THREE.Texture, color: THREE.Color) {
+export function applyStitches(
+  mat: THREE.MeshPhysicalMaterial,
+  geo: THREE.BufferGeometry,
+  tex: THREE.Texture,
+  color: THREE.Color,
+  /** 縁（コバ）を塗るか。重ねたパーツだけ（アッパー自体は塗らない） */
+  edgePaint = false,
+) {
   const uv1 = geo.getAttribute('uv1');
   if (!uv1) return;
   // 組み込みの uv1 は素材の凹凸の設定しだいでシェーダーに入らないので、同じバッファを別名で渡す
@@ -104,6 +156,7 @@ export function applyStitches(mat: THREE.MeshPhysicalMaterial, geo: THREE.Buffer
     uSfThread: { value: color },
     // 糸の盛り上がり（実寸）。約 0.4mm
     uSfStitchBump: { value: 0.004 },
+    uSfEdgePaint: { value: edgePaint ? 1 : 0 },
   };
   mat.userData.sfStitchUniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
@@ -119,6 +172,7 @@ varying vec2 vSfSkin;
 uniform sampler2D uSfStitch;
 uniform vec3 uSfThread;
 uniform float uSfStitchBump;
+uniform float uSfEdgePaint;
 // x = 糸, y = 針穴, z = 糸の盛り上がり
 vec3 sfStitchMask() {
   vec4 t = texture2D(uSfStitch, vSfSkin);
@@ -142,6 +196,8 @@ vec3 sfStitchMask() {
         '#include <color_fragment>',
         `#include <color_fragment>
 vec3 sfSt = sfStitchMask();
+float sfEdge = (1.0 - texture2D(uSfStitch, vSfSkin).a) * uSfEdgePaint;
+diffuseColor.rgb *= 1.0 - 0.22 * sfEdge;
 diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - 0.3 * sfSt.y), uSfThread, sfSt.x);`,
       )
       .replace(

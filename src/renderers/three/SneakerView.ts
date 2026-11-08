@@ -238,8 +238,12 @@ export class SneakerView {
       mat.aoMap = getContactShadowTexture(outlines, uvSize);
       mat.aoMapIntensity = 1;
     }
-    const stitches = this.meshes.upper.geometry.userData.stitchLines as StitchLine[] | undefined;
-    if (stitches && skinSize) applyStitches(mat, geo, getStitchTexture(stitches), threadColor(style.color));
+    const ud = this.meshes.upper.geometry.userData;
+    const stitches = ud.stitchLines as StitchLine[] | undefined;
+    if (stitches && skinSize) {
+      const tex = getStitchTexture(stitches, (ud.edgeLines as StitchLine[] | undefined) ?? []);
+      applyStitches(mat, geo, tex, threadColor(style.color), id !== 'upper');
+    }
     return mat;
   }
 

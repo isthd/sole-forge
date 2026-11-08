@@ -1,4 +1,4 @@
-import type { BaseModelId, Decal, PartId, PartStyle, SneakerDesign } from './types';
+import type { BaseModelId, Decal, PartId, PartStyle, ShapeOptions, SneakerDesign } from './types';
 import { CURRENT_SCHEMA_VERSION, PART_IDS } from './types';
 
 export function uid(prefix = ''): string {
@@ -19,12 +19,12 @@ export function normalizeHex(input: string): string | null {
 }
 
 /**
- * 新しい作品の配色。白レザーにグレースエードの補強パーツ、フォームのミッドソール、ガムソール。
+ * 新しい作品の配色。白レザーにグレースエードの補強パーツ（トゥ・マッドガード・クォーター・ヒール・アイステイ）、フォームのミッドソール、ガムソール。
  * パーツの重なりとステッチが見える定番の組み合わせにして、最初から靴の作りが読めるようにする。
  */
 export const DEFAULT_PARTS: Record<PartId, PartStyle> = {
   upper: { color: '#F2F2EE', material: 'leather' },
-  toe: { color: '#F2F2EE', material: 'leather' },
+  toe: { color: '#8E8E94', material: 'suede' },
   heel: { color: '#8E8E94', material: 'suede' },
   eyestay: { color: '#8E8E94', material: 'suede' },
   tongue: { color: '#F2F2EE', material: 'mesh' },
@@ -35,6 +35,12 @@ export const DEFAULT_PARTS: Record<PartId, PartStyle> = {
   laces: { color: '#F2F2EE', material: 'canvas' },
 };
 
+/**
+ * 新しい作品の形。ソールからアイステイまでつながるクォーターと、足まわりを一周する低めのマッドガード。
+ * 形の「標準」は以前のまま（六角・なし）にしておき、保存済みの作品の見た目は変えない。
+ */
+export const NEW_DESIGN_SHAPE: ShapeOptions = { sidePanel: 'quarter', mudguard: 'low' };
+
 export function createDesign(name = '無題のスニーカー', shelfOrder = 0, baseModel: BaseModelId = 'hightop-01'): SneakerDesign {
   const now = new Date().toISOString();
   const parts = {} as Record<PartId, PartStyle>;
@@ -44,6 +50,7 @@ export function createDesign(name = '無題のスニーカー', shelfOrder = 0, 
     name,
     baseModel,
     parts,
+    shape: { ...NEW_DESIGN_SHAPE },
     decals: [],
     favorite: false,
     shelfOrder,

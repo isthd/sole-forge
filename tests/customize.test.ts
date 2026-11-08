@@ -68,7 +68,7 @@ describe('パーツの形の選択', () => {
   });
 
   it('一番ポリゴンが多い組み合わせでも 1 足 5 万ポリゴン以下', () => {
-    const heavy: ShapeOptions = { sidePanel: 'saddle', pullTab: 'long', laceWidth: 'thick', laceStyle: 'cross', laceTie: 'bow', eyelets: '7' };
+    const heavy: ShapeOptions = { sidePanel: 'quarter', mudguard: 'high', toeCap: 'long', heelCounter: 'high', pullTab: 'long', laceWidth: 'thick', laceStyle: 'cross', laceTie: 'bow', eyelets: '7' };
     for (const id of BASE_MODEL_IDS) expect(countTriangles(getGeometries(getDesignModel(id, heavy))) * 2).toBeLessThanOrEqual(50000);
   });
 
@@ -102,8 +102,24 @@ describe('パーツの形の選択', () => {
 
 describe('形・ツヤ・柄の大きさの編集（ストア）', () => {
   beforeEach(() => {
-    s().loadDesign(createDesign('t', 0, 'hicut-01'));
+    // 形がすべて標準の作品（新しい作品はクォーターとマッドガード付きで始まるので、ここでは外す）
+    const d = createDesign('t', 0, 'hicut-01');
+    delete d.shape;
+    s().loadDesign(d);
     endBurst();
+  });
+
+  it('新しい作品はソールからアイステイまでつながるクォーターと低めのマッドガードで始まる', () => {
+    const d = createDesign('n', 0, 'hicut-01');
+    expect(d.shape).toEqual({ sidePanel: 'quarter', mudguard: 'low' });
+    // クォーターは靴底（h=0）からアイステイ（h≈0.86）の下まで届く。マッドガードはトゥに含まれ、トゥが一周近く伸びる
+    const g = getGeometries(modelOf(d));
+    const plain = getGeometries(getBaseModel('hicut-01'));
+    g.toe.computeBoundingBox();
+    plain.toe.computeBoundingBox();
+    expect(g.toe.boundingBox!.min.x).toBeLessThan(plain.toe.boundingBox!.min.x - 1);
+    g.sidePanel.computeBoundingBox();
+    expect(g.sidePanel.boundingBox!.min.y).toBeLessThan(plain.sidePanel.boundingBox!.min.y - 0.2);
   });
 
   it('形の変更は 1 手で記録され、デカールは新しい表面へ載せ直され、Undo で戻る', () => {
